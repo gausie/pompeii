@@ -39,10 +39,9 @@ function help(): void {
   print("pompeii [rewards...] [games=N] [samples=N] [nopotions] [nolock]");
   print("Plays Bastille Battalion to maximise cheese, learning enemy castles as it goes.");
   print("");
-  print("Rewards (first game of the day only; anything not given is chosen for score):");
+  print("Rewards for the first game of the day; anything not given is chosen for score:");
   print("  barbecue/babar/barbershop, brutalist/draftsman/nouveau, cannon/catapult/gesture,");
   print("  sharks/lava/truth, or muscle/myst/moxie/mainstat for all three stat-themed ones.");
-  print("  The barbican defaults to your mainstat.");
   print("games=N    stop after N games (default: all remaining plays)");
   print("samples=N  rollouts per decision; higher is slower but sharper (default 16)");
   print(
@@ -56,7 +55,7 @@ export function main(args = ""): void {
   if (words.includes("help")) return help();
 
   const options: Options = {
-    rewards: { barb: WORDS[mainstat()].barb },
+    rewards: {},
     games: 5,
     samples: 16,
     // Per-character opt-out, e.g. for characters that shouldn't appear on the leaderboard

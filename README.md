@@ -6,9 +6,10 @@ Plays Bastille Battalion for the most cheese it can get.
 pompeii [rewards...] [games=N] [samples=N] [nopotions] [nolock]
 ```
 
-Run `pompeii help` for the options. By default it plays every game left today, takes the
-barbican for your mainstat on the first game, picks everything else for score, and locks in a
-score for the leaderboard when it's unlikely to do better with the games remaining.
+Run `pompeii help` for the options. By default it tops up the Bastille potions to 3 turns each,
+plays every game left today with every style picked for score, and locks in a score for the
+leaderboard when it's unlikely to do better with the games remaining. Name rewards (e.g.
+`pompeii mainstat draftsman`) to fix those styles for the first game.
 
 ## How it decides
 
