@@ -2854,10 +2854,9 @@ function help() {
   kolmafia.print("pompeii [rewards...] [games=N] [samples=N] [nopotions] [nolock]");
   kolmafia.print("Plays Bastille Battalion to maximise cheese, learning enemy castles as it goes.");
   kolmafia.print("");
-  kolmafia.print("Rewards (first game of the day only; anything not given is chosen for score):");
+  kolmafia.print("Rewards for the first game of the day; anything not given is chosen for score:");
   kolmafia.print("  barbecue/babar/barbershop, brutalist/draftsman/nouveau, cannon/catapult/gesture,");
   kolmafia.print("  sharks/lava/truth, or muscle/myst/moxie/mainstat for all three stat-themed ones.");
-  kolmafia.print("  The barbican defaults to your mainstat.");
   kolmafia.print("games=N    stop after N games (default: all remaining plays)");
   kolmafia.print("samples=N  rollouts per decision; higher is slower but sharper (default 16)");
   kolmafia.print("nopotions  don't top up sharkfin gumbo/boiling broth/interrogative elixir to 3 turns each");
@@ -2869,9 +2868,7 @@ function main() {
   var words = args.toLowerCase().split(/\s+/).filter(Boolean);
   if (words.includes("help")) return help();
   var options = {
-    rewards: {
-      barb: WORDS[mainstat()].barb
-    },
+    rewards: {},
     games: 5,
     samples: 16,
     // Per-character opt-out, e.g. for characters that shouldn't appear on the leaderboard
