@@ -2861,7 +2861,6 @@ function help() {
   kolmafia.print("samples=N  rollouts per decision; higher is slower but sharper (default 16)");
   kolmafia.print("nopotions  don't top up sharkfin gumbo/boiling broth/interrogative elixir to 3 turns each");
   kolmafia.print("nolock     never lock in a score for the leaderboard");
-  kolmafia.print("           (set pompeiiNoLock=true to make that permanent for a character)");
 }
 function main() {
   var args = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : "";
