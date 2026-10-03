@@ -24,6 +24,15 @@ export default defineConfig(
       "prefer-template": "error",
       "no-unused-vars": "off",
       "@typescript-eslint/no-unused-vars": "error",
+      "no-restricted-properties": [
+        "error",
+        {
+          object: "Object",
+          property: "fromEntries",
+          message:
+            "KoLmafia's Rhino stores numeric-looking keys so that obj[1] can't find them; build objects by assignment",
+        },
+      ],
       "no-restricted-syntax": [
         "error",
         {

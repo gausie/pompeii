@@ -1,0 +1,245 @@
+{
+  "offense": [
+    {
+      "bonus": {
+        "MA": 5
+      }
+    },
+    {
+      "bonus": {
+        "CA": 5
+      }
+    },
+    {
+      "bonus": {
+        "PA": 5
+      }
+    },
+    {
+      "bonus": {
+        "MA": 10,
+        "PD": -5
+      }
+    },
+    {
+      "bonus": {
+        "CA": 10,
+        "MD": -5
+      }
+    },
+    {
+      "bonus": {
+        "PA": 10,
+        "CD": -5
+      }
+    },
+    {
+      "bonus": {
+        "MA": 10,
+        "CA": 10,
+        "PA": -10
+      }
+    },
+    {
+      "bonus": {
+        "MA": 10,
+        "PA": 10,
+        "CA": -10
+      }
+    },
+    {
+      "bonus": {
+        "CA": 10,
+        "PA": 10,
+        "MA": -10
+      }
+    },
+    {
+      "bonus": {
+        "MA": 5,
+        "CA": 5,
+        "PA": 5
+      }
+    },
+    {
+      "bonus": {
+        "MA": 10,
+        "CA": 10,
+        "PA": 10,
+        "MD": -5,
+        "CD": -5,
+        "PD": -5
+      }
+    },
+    {
+      "bonus": {
+        "MA": 15,
+        "CA": 15,
+        "PA": 15,
+        "MD": -15,
+        "CD": -15,
+        "PD": -15
+      }
+    },
+    {
+      "bonus": {
+        "MA": 10,
+        "CD": -10
+      },
+      "cheese": 15
+    },
+    {
+      "bonus": {
+        "CA": 10,
+        "PD": -10
+      },
+      "cheese": 15
+    },
+    {
+      "bonus": {
+        "PA": 10,
+        "MD": -10
+      },
+      "cheese": 15
+    }
+  ],
+  "defense": [
+    {
+      "bonus": {
+        "MD": 5
+      }
+    },
+    {
+      "bonus": {
+        "CD": 5
+      }
+    },
+    {
+      "bonus": {
+        "PD": 5
+      }
+    },
+    {
+      "bonus": {
+        "MD": 10,
+        "PA": -5
+      }
+    },
+    {
+      "bonus": {
+        "CD": 10,
+        "MA": -5
+      }
+    },
+    {
+      "bonus": {
+        "PD": 10,
+        "CA": -5
+      }
+    },
+    {
+      "bonus": {
+        "MD": 10,
+        "CD": 10,
+        "PD": -10
+      }
+    },
+    {
+      "bonus": {
+        "MD": 10,
+        "PD": 10,
+        "CD": -10
+      }
+    },
+    {
+      "bonus": {
+        "CD": 10,
+        "PD": 10,
+        "MD": -10
+      }
+    },
+    {
+      "bonus": {
+        "MD": 5,
+        "CD": 5,
+        "PD": 5
+      }
+    },
+    {
+      "bonus": {
+        "MD": 10,
+        "CD": 10,
+        "PD": 10,
+        "MA": -5,
+        "CA": -5,
+        "PA": -5
+      }
+    },
+    {
+      "bonus": {
+        "MD": 15,
+        "CD": 15,
+        "PD": 15,
+        "MA": -15,
+        "CA": -15,
+        "PA": -15
+      }
+    }
+  ],
+  "cheese": [
+    {
+      "fixed": 20
+    },
+    {
+      "fixed": 50
+    },
+    {
+      "fixed": 100
+    },
+    {
+      "scaled": "MA"
+    },
+    {
+      "scaled": "CA"
+    },
+    {
+      "scaled": "PA"
+    },
+    {
+      "scaled": "MA",
+      "inverse": true
+    },
+    {
+      "scaled": "CA",
+      "inverse": true
+    },
+    {
+      "scaled": "PA",
+      "inverse": true
+    },
+    {
+      "scaled": "MD"
+    },
+    {
+      "scaled": "CD"
+    },
+    {
+      "scaled": "PD"
+    },
+    {
+      "scaled": "MD",
+      "inverse": true
+    },
+    {
+      "scaled": "CD",
+      "inverse": true
+    },
+    {
+      "scaled": "PD",
+      "inverse": true
+    },
+    {
+      "well": true
+    }
+  ]
+}

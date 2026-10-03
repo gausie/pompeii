@@ -1,0 +1,51 @@
+{
+  "offense": {
+    "Conscript the soldiers": 1,
+    "Pick up the boulders": 2,
+    "Commission some art": 3,
+    "Draft those artists": 4,
+    "Widen the arrow slits": 5,
+    "Add more windows": 6,
+    "Strengthen the walls": 7,
+    "Build the memorial": 8,
+    "Improve the keep": 9,
+    "Approve the retrofit": 10,
+    "Get sloppy": 11,
+    "Adopt the radical combat style": 12,
+    "Levy the tax": 13,
+    "Let the citizens hurl cheese at you": 14,
+    "Trade soldiers for cheese": 15
+  },
+  "defense": {
+    "Train the soldiers": 1,
+    "Thicken the walls": 2,
+    "Add more murals": 3,
+    "Convert the galleries": 4,
+    "Make the soldiers masons": 5,
+    "Build the weird statue": 6,
+    "Repurpose the statues": 7,
+    "Lower the walls": 8,
+    "Cut military spending": 9,
+    "Throw the party": 10,
+    "Blunt everything": 11,
+    "Do the plowshares thing": 12
+  },
+  "cheese": {
+    "Raid the cart": 1,
+    "Scrape out the mine": 2,
+    "Grab the boulder": 3,
+    "Raid the cave": 4,
+    "Shoot the glacier": 5,
+    "Rob the suburb": 6,
+    "Enter the Weakest Army competition": 7,
+    "Submit embarrassing catapult photos": 8,
+    "Enter the childrens' art contest": 9,
+    "Convert the barracks": 10,
+    "Try the wall thing": 11,
+    "Have the cheese contest": 12,
+    "Let the cheese horse in": 13,
+    "Stand in the waterfall": 14,
+    "Put on the bad art show": 15,
+    "Use the wishing well": 16
+  }
+}
