@@ -10,7 +10,7 @@
     "lint": "eslint src --ext .ts &&  NODE_OPTIONS=\"--experimental-strip-types\" prettier --check .",
     "watch": "rollup -c rollup.config.ts --configPlugin @rollup/plugin-typescript --watch",
     "install-mafia": "npm run build && create-kolmafia-script --install",
-    "test": "vitest run",
+    "test": "vitest run --dir test",
     "simulate": "SIMULATE=1 vitest run test/simulate.test.ts --silent=false",
     "bars": "GENERATE_BARS=1 vitest run test/bars.test.ts -t 'generates the bars'"
   },
