@@ -73,6 +73,7 @@ function engineDay(settings: Partial<SimulatorSettings>): number {
     games: GAMES,
     samples: SAMPLES,
     lockIn: true,
+    toBeat: 0,
   }).run();
   return sim.lockedScore ?? 0;
 }

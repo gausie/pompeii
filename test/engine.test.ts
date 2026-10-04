@@ -6,7 +6,7 @@ import { Observation } from "../src/observation";
 
 import { Simulator, SimulatorSettings } from "./simulator";
 
-const options: Options = { rewards: { barb: 2 }, games: 5, samples: 4, lockIn: true };
+const options: Options = { rewards: { barb: 2 }, games: 5, samples: 4, lockIn: true, toBeat: 0 };
 
 // Notes what the engine believes about its stats after every request, to
 // check against the simulator's audit once the day is over
@@ -70,6 +70,28 @@ describe("engine against the simulator", () => {
         return;
       }
     }
+  });
+
+  it("never locks in a score that doesn't beat one locked in earlier today", () => {
+    const { simulator } = play({}, { toBeat: 5000 });
+    expect(simulator.finalScores).toHaveLength(5);
+    expect(simulator.lockedScore).toBeNull();
+  });
+
+  it("locks in the first score worth it that beats one locked in earlier today", () => {
+    let locked = 0;
+    for (let seed = 1; seed <= 10; seed++) {
+      const { simulator } = play({ seed }, { toBeat: 1700 });
+      if (simulator.lockedScore === null) {
+        expect(simulator.finalScores).toHaveLength(5);
+        expect(simulator.finalScores[4]).toBeLessThanOrEqual(1700);
+      } else {
+        locked++;
+        expect(simulator.lockedScore).toBeGreaterThan(1700);
+        expect(simulator.finalScores[simulator.finalScores.length - 1]).toBe(simulator.lockedScore);
+      }
+    }
+    expect(locked).toBeGreaterThan(0);
   });
 
   it("stops after the requested number of games without reopening the rig", () => {

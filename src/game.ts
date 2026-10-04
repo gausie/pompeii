@@ -15,7 +15,7 @@ import { $item, $items, get, have } from "libram";
 
 import { BOOST_EFFECTS, BOOST_POTIONS } from "./constants";
 import { Client, Observation } from "./observation";
-import { parseObservation } from "./parse";
+import { parseHiScores, parseObservation, Score } from "./parse";
 
 const RIG = $item`Bastille Battalion control rig`;
 const VOUCHER = $item`Bastille Battalion control rig loaner voucher`;
@@ -38,13 +38,29 @@ export class GameClient implements Client {
       item = VOUCHER;
     }
     if (itemAmount(item) === 0) retrieveItem(1, item);
-    return parseObservation(visitUrl(`inv_use.php?whichitem=${item.id}&pwd=${myHash()}`));
+    return this.useRig(item);
   }
 
   choose(choice: number, option: number): Observation {
-    return parseObservation(
-      visitUrl(`choice.php?whichchoice=${choice}&option=${option}&pwd=${myHash()}`),
-    );
+    return parseObservation(this.visitChoice(choice, option));
+  }
+
+  private useRig(item: Item): Observation {
+    return parseObservation(visitUrl(`inv_use.php?whichitem=${item.id}&pwd=${myHash()}`));
+  }
+
+  private visitChoice(choice: number, option: number): string {
+    return visitUrl(`choice.php?whichchoice=${choice}&option=${option}&pwd=${myHash()}`);
+  }
+
+  // Today's leaderboard, or null if we can't get to it. Viewing it leaves the
+  // rig. Never spends a loaner voucher just to look.
+  hiScores(): Score[] | null {
+    if (!have(RIG)) return null;
+    let page = this.current();
+    if (page.choice === null) page = this.useRig(RIG);
+    if (page.choice !== 1313) return null;
+    return parseHiScores(this.visitChoice(1313, 6));
   }
 
   boosts(): [number, number, number] {

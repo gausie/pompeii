@@ -1,9 +1,10 @@
-import { myPrimestat, print } from "kolmafia";
+import { myId, myPrimestat, print } from "kolmafia";
 import { $stat, get } from "libram";
 
 import { Configuration } from "./constants";
 import { Engine, Options } from "./engine";
 import { GameClient } from "./game";
+import { Score } from "./parse";
 
 const WORDS: Record<string, Partial<Configuration>> = {
   barbecue: { barb: 1 },
@@ -35,8 +36,37 @@ function mainstat(): "muscle" | "myst" | "moxie" {
   return "moxie";
 }
 
+const isMe = (score: Score) => score.playerId === Number(myId());
+
+// Where we placed on today's leaderboard
+function showHiScores(client: GameClient): void {
+  const scores = client.hiScores();
+  if (!scores) return print("Couldn't get to the Bastille Battalion hi scores.", "red");
+  const rank = scores.findIndex(isMe);
+  print(
+    rank < 0
+      ? `Not on today's leaderboard (${scores.length} players).`
+      : `Placed #${rank + 1} of ${scores.length} today.`,
+    "blue",
+  );
+  scores.forEach((score, i) => {
+    if (i < 5 || i === rank) {
+      print(`${i + 1}. ${score.name} ${score.cheese}`, i === rank ? "green" : undefined);
+    }
+  });
+}
+
+// A score locked in before ascending stays on the board unless we replace
+// it. Null if we couldn't read the board.
+function earlierScore(client: GameClient): number | null {
+  if (get("ascensionsToday", 0) === 0) return 0;
+  const scores = client.hiScores();
+  return scores ? (scores.find(isMe)?.cheese ?? 0) : null;
+}
+
 function help(): void {
   print("pompeii [rewards...] [games=N] [samples=N] [nopotions] [nolock]");
+  print("pompeii scores  (just show today's leaderboard)");
   print("Plays Bastille Battalion to maximise cheese, learning enemy castles as it goes.");
   print("");
   print("Rewards for the first game of the day; anything not given is chosen for score:");
@@ -53,6 +83,7 @@ function help(): void {
 export function main(args = ""): void {
   const words = args.toLowerCase().split(/\s+/).filter(Boolean);
   if (words.includes("help")) return help();
+  if (words.includes("scores")) return showHiScores(new GameClient());
 
   const options: Options = {
     rewards: {},
@@ -60,6 +91,7 @@ export function main(args = ""): void {
     samples: 16,
     // Per-character opt-out, e.g. for characters that shouldn't appear on the leaderboard
     lockIn: !get("pompeiiNoLock", false),
+    toBeat: 0,
   };
   let potions = true;
 
@@ -78,6 +110,15 @@ export function main(args = ""): void {
   }
 
   const client = new GameClient();
+  const earlier = options.lockIn ? earlierScore(client) : 0;
+  if (earlier === null) {
+    print("Couldn't check for a score locked in before ascending; won't lock in.", "red");
+    options.lockIn = false;
+  } else if (earlier > 0) {
+    options.toBeat = earlier;
+    print(`Since we already locked in ${earlier} today, we only care if we beat that.`);
+  }
   if (potions) client.drinkPotions();
   new Engine(client, options).run();
+  showHiScores(client);
 }

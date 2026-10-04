@@ -2,7 +2,7 @@ import { readFileSync } from "fs";
 import { describe, expect, it } from "vitest";
 
 import { CA, CD, MA, MD, PA, PD } from "../src/constants";
-import { parseDescription, parseObservation } from "../src/parse";
+import { parseDescription, parseHiScores, parseObservation } from "../src/parse";
 
 const fixture = (name: string) =>
   readFileSync(new URL(`./fixtures/test_bastille_${name}.html`, import.meta.url), "utf8");
@@ -83,6 +83,19 @@ describe("parseObservation", () => {
     expect(page.choice).toBe(1313);
     expect(page.needles.size).toBe(6);
     expect(page.config.barb).toBe(1);
+  });
+});
+
+describe("parseHiScores", () => {
+  it("parses today's leaderboard", () => {
+    const scores = parseHiScores(fixture("hiscores"));
+    expect(scores).toHaveLength(8);
+    expect(scores?.[0]).toEqual({ playerId: 1197090, name: "gaUsie", cheese: 1579 });
+    expect(scores?.[7]).toEqual({ playerId: 754053, name: "Gargonite", cheese: 19 });
+  });
+
+  it("returns null for other pages", () => {
+    expect(parseHiScores(fixture("configure_1"))).toBeNull();
   });
 });
 

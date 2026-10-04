@@ -34,6 +34,9 @@ export type Options = {
   games: number;
   samples: number;
   lockIn: boolean;
+  // A score locked in earlier today, before ascending. We get another five
+  // plays, but only a score that beats it is worth locking in.
+  toBeat: number;
 };
 
 // Everything about the game in progress except our stats, which the tracker owns
@@ -141,7 +144,9 @@ export class Engine {
       this.options.games - this.gamesPlayed - 1,
     );
     this.lockTarget =
-      this.options.lockIn && gamesAfter > 0 ? lockInBar(this.ctx.boosts, gamesAfter) : -Infinity;
+      this.options.lockIn && gamesAfter > 0
+        ? Math.max(lockInBar(this.ctx.boosts, gamesAfter), this.options.toBeat + 1)
+        : -Infinity;
 
     const key = JSON.stringify(fixed);
     let target = this.configurations.get(key);
@@ -280,10 +285,12 @@ export class Engine {
     this.log(`Game over: ${over.cheese} cheese.`, "blue");
     const remaining = Math.min(over.playsLeft, this.options.games - this.gamesPlayed);
 
-    // Lock in if we hit what we were going for, or if this is the last game.
-    // Once locked in there's nothing more to play for today.
+    // Lock in if we hit what we were going for, or if this is the last game
+    // and it beats anything locked in earlier today. Once locked in there's
+    // nothing more to play for today.
     const target = remaining > 0 ? this.lockTarget : -Infinity;
-    if (this.options.lockIn && over.canLockIn && over.cheese >= target) {
+    const worth = over.cheese >= target && over.cheese > this.options.toBeat;
+    if (this.options.lockIn && over.canLockIn && worth) {
       this.log(
         `Locking in ${over.cheese}${target > -Infinity ? ` (aimed for ${fmt(target)})` : ""}.`,
         "green",

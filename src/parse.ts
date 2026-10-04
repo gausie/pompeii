@@ -13,6 +13,8 @@ function allMatches(text: string, pattern: RegExp): RegExpExecArray[] {
   return result;
 }
 
+const toNumber = (text: string) => Number(text.replace(/,/g, ""));
+
 const NEEDLE_ROWS: Record<string, [number, number]> = {
   "233": [MA, MD],
   "252": [CA, CD],
@@ -85,10 +87,24 @@ function parseGameOver(html: string): GameOver | null {
   const score = html.match(/collected ([\d,]+) cheese/);
   if (!html.includes("GAME OVER") || !score) return null;
   return {
-    cheese: Number(score[1].replace(/,/g, "")),
+    cheese: toNumber(score[1]),
     playsLeft: Number(html.match(/You can play <b>(\d+)<\/b> more time/)?.[1] ?? 0),
     canLockIn: html.includes("Lock in your score"),
   };
+}
+
+export type Score = { playerId: number; name: string; cheese: number };
+
+// Today's leaderboard, from the Hi Scores button in the lobby
+export function parseHiScores(html: string): Score[] | null {
+  if (!html.includes("Cheesemasters:")) return null;
+  return allMatches(html, /showplayer\.php\?who=(\d+)>([^<]+)<\/a>.*?<td>([\d,]+) curds/g).map(
+    ([, id, name, cheese]) => ({
+      playerId: Number(id),
+      name,
+      cheese: toNumber(cheese),
+    }),
+  );
 }
 
 export function parseObservation(html: string): Observation {
