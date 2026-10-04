@@ -3,8 +3,7 @@ import { $stat, get } from "libram";
 
 import { Configuration } from "./constants";
 import { Engine, Options } from "./engine";
-import { GameClient } from "./game";
-import { Score } from "./parse";
+import { GameClient, Score } from "./game";
 
 const WORDS: Record<string, Partial<Configuration>> = {
   barbecue: { barb: 1 },

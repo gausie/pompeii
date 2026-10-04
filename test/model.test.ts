@@ -25,16 +25,16 @@ describe("configurationDelta", () => {
 describe("needleInterval", () => {
   // Readings from KoLmafia session logs with known stats
   it.each([
-    [MA, 100, 124],
-    [MA, 110, 126],
-    [PA, 115, 126],
-    [PA, 135, 129],
-    [MD, 90, 240],
-    [MD, 105, 242],
-    [PD, 130, 245],
-    [PD, 150, 248],
-  ])("puts stat %i at %i on pixel %i", (stat, value, pixel) => {
-    const [lo, hi] = needleInterval(stat, pixel);
+    [MA, 100, 0],
+    [MA, 110, 2],
+    [PA, 115, 2],
+    [PA, 135, 5],
+    [MD, 90, 0],
+    [MD, 105, 2],
+    [PD, 130, 5],
+    [PD, 150, 8],
+  ])("puts stat %i at %i on reading %i", (stat, value, reading) => {
+    const [lo, hi] = needleInterval(stat, reading);
     expect(value).toBeGreaterThanOrEqual(lo);
     expect(value).toBeLessThan(hi);
   });
@@ -43,12 +43,12 @@ describe("needleInterval", () => {
 describe("Tracker", () => {
   it("narrows stats as needles are observed across known shifts", () => {
     const tracker = Tracker.unknown();
-    tracker.observe(new Map([[MA, 124]]));
+    tracker.observe(new Map([[MA, 0]]));
     expect(tracker.lo[MA]).toBe(95);
     expect(tracker.hi[MA]).toBe(102.5);
-    // +5 MA keeps us on the same pixel, so MA was below 97.5
+    // +5 MA keeps the same reading, so MA was below 97.5
     tracker.shift(delta(MENU_OPTIONS.offense[1]));
-    tracker.observe(new Map([[MA, 124]]));
+    tracker.observe(new Map([[MA, 0]]));
     expect(tracker.lo[MA]).toBe(100);
     expect(tracker.hi[MA]).toBe(102.5);
   });
@@ -60,8 +60,8 @@ describe("Tracker", () => {
 
   it("starts over if the needles contradict everything", () => {
     const tracker = Tracker.exactly([100, 100, 100, 100, 100, 100]);
-    expect(tracker.observe(new Map([[PD, 300]]))).toBe(false);
-    expect(tracker.lo[PD]).toBe(needleInterval(PD, 300)[0]);
+    expect(tracker.observe(new Map([[PD, 60]]))).toBe(false);
+    expect(tracker.lo[PD]).toBe(needleInterval(PD, 60)[0]);
     // The other stats go back to unknown rather than keeping stale values
     expect(tracker.hi[MA] - tracker.lo[MA]).toBeGreaterThan(100);
   });

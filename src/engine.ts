@@ -1,12 +1,15 @@
 import { lockInBar } from "./bars";
 import {
+  BUTTONS,
   Configuration,
+  LOCK_IN,
   Menu,
   MENU_CHOICE,
   MENU_OPTION,
   MENU_OPTIONS,
   MENUS,
   STANCES,
+  START_OPTION,
   STAT_NAMES,
   startingStats,
   Stats,
@@ -14,7 +17,6 @@ import {
   UPGRADE_OPTION,
   UPGRADES,
 } from "./constants";
-import { identify } from "./identify";
 import { Client, Observation } from "./observation";
 import {
   battleNumber,
@@ -84,7 +86,7 @@ export class Engine {
       let next: Observation | null;
       switch (observation.choice) {
         case 1313:
-          if (this.gamesPlayed >= this.options.games || !observation.canStart) {
+          if (this.gamesPlayed >= this.options.games || !this.canStart(observation)) {
             this.client.choose(1313, 8);
             return;
           }
@@ -114,16 +116,24 @@ export class Engine {
   }
 
   // Before a game our stats follow from the configuration alone; during one
-  // the needles check the stats we've tracked
+  // the needles check the stats we've tracked. In the lobby the needles may
+  // still be the last game's, so we go by the configuration.
   private observe(observation: Observation): void {
     if (Object.keys(observation.config).length === 4) this.config = observation.config;
-    if (observation.choice === 1313 && Object.keys(this.config).length === 4) {
-      this.tracker = Tracker.exactly(startingStats(this.config as Configuration));
+    if (observation.choice === 1313) {
+      if (Object.keys(this.config).length === 4) {
+        this.tracker = Tracker.exactly(startingStats(this.config as Configuration));
+      }
+      return;
     }
     if (observation.needles.size === 0) return;
     if (!this.tracker.observe(observation.needles)) {
       this.log("Needles disagreed with tracked stats; resetting from the needles.", "gray");
     }
+  }
+
+  private canStart(observation: Observation): boolean {
+    return observation.buttons.some((b) => b.option === START_OPTION);
   }
 
   // What the strategy needs to know about the game in progress
@@ -175,7 +185,7 @@ export class Engine {
       if (this.config[upgrade] !== chosen[upgrade]) throw new Error(`Couldn't set ${upgrade}`);
     }
 
-    const start = this.client.choose(1313, 5);
+    const start = this.client.choose(1313, START_OPTION);
     this.progress = newGame(this.tracker.estimate(), start.enemy);
     this.log(
       `Game ${this.gamesPlayed + 1} started. Stats: ${fmtStats(this.tracker.estimate())}`,
@@ -190,8 +200,9 @@ export class Engine {
     // If we've picked up a game in progress we don't know which options were
     // already taken; assume none were and go by the needles.
     if (!this.progress) this.progress = newGame(this.tracker.estimate(), observation.enemy);
-    if (observation.turn) this.progress.turn = observation.turn;
-    if (observation.enemy) this.progress.enemy = observation.enemy;
+    this.progress.turn = observation.turn;
+    this.progress.cheese = observation.cheese;
+    this.progress.enemy = observation.enemy;
     return this.progress;
   }
 
@@ -214,10 +225,10 @@ export class Engine {
   private chooseButton(observation: Observation): Observation {
     const progress = this.ensureProgress(observation);
     const menu = MENUS.find((m) => MENU_CHOICE[m] === observation.choice) as Menu;
-    const ids = observation.buttons.map((b) => identify(menu, b, progress.pools[menu]));
-    const known = observation.buttons.flatMap((button, i) =>
-      ids[i] === null ? [] : [{ button, id: ids[i] as number }],
-    );
+    const known = observation.buttons.flatMap((button) => {
+      const id = BUTTONS[menu][button.name];
+      return id === undefined ? [] : [{ button, id }];
+    });
     if (known.length === 0) {
       // Nothing we recognise; take the first and let the needles sort us out
       this.log(`  Unrecognised buttons; taking ${observation.buttons[0].name}`, "red");
@@ -248,11 +259,8 @@ export class Engine {
 
     const option = MENU_OPTIONS[menu][id];
     if (option.kind === "stats") this.tracker.shift(option.delta);
-    const result = this.client.choose(observation.choice as number, button.option);
-    progress.cheese += result.cheeseGained;
     progress.pools[menu] = progress.pools[menu].filter((x) => x !== id);
-    progress.turn += 1;
-    return result;
+    return this.client.choose(observation.choice as number, button.option);
   }
 
   private fight(observation: Observation): Observation {
@@ -264,35 +272,33 @@ export class Engine {
       `Battle ${battle} vs ${enemy}: ${STANCES.map((s, i) => `${s.name} ${fmt(chances[i] * 100)}%`).join(", ")}`,
     );
     const result = this.client.choose(1315, stance.option);
-    progress.cheese += result.cheeseGained;
-    progress.turn += 1;
-    progress.enemy = null;
+    const outcome = result.lastBattle;
+    const gained = result.cheese - progress.cheese;
     this.log(
-      `  ${result.battle?.won ? "Won" : "Lost"} (${result.battle?.attacking ? "attacking" : "defending"})` +
-        `${result.cheeseGained ? `, +${result.cheeseGained} cheese` : ""}`,
-      result.battle?.won ? "green" : "red",
+      `  ${outcome?.won ? "Won" : "Lost"} (${outcome?.attacking ? "attacking" : "defending"})` +
+        `${gained > 0 ? `, +${gained} cheese` : ""}`,
+      outcome?.won ? "green" : "red",
     );
     return result;
   }
 
   private endGame(observation: Observation): Observation | null {
-    const over = observation.gameOver;
     // The rewards arrive with whichever option we pick here
     this.gamesPlayed += 1;
     this.progress = null;
-    if (!over) return this.client.choose(1316, 3);
-
-    this.log(`Game over: ${over.cheese} cheese.`, "blue");
-    const remaining = Math.min(over.playsLeft, this.options.games - this.gamesPlayed);
+    const { cheese } = observation;
+    this.log(`Game over: ${cheese} cheese.`, "blue");
+    const remaining = Math.min(this.client.playsLeft(), this.options.games - this.gamesPlayed);
+    const canLockIn = observation.buttons.some((b) => b.name === LOCK_IN);
 
     // Lock in if we hit what we were going for, or if this is the last game
     // and it beats anything locked in earlier today. Once locked in there's
     // nothing more to play for today.
     const target = remaining > 0 ? this.lockTarget : -Infinity;
-    const worth = over.cheese >= target && over.cheese > this.options.toBeat;
-    if (this.options.lockIn && over.canLockIn && worth) {
+    const worth = cheese >= target && cheese > this.options.toBeat;
+    if (this.options.lockIn && canLockIn && worth) {
       this.log(
-        `Locking in ${over.cheese}${target > -Infinity ? ` (aimed for ${fmt(target)})` : ""}.`,
+        `Locking in ${cheese}${target > -Infinity ? ` (aimed for ${fmt(target)})` : ""}.`,
         "green",
       );
       this.client.choose(1316, 1);

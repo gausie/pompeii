@@ -1,16 +1,21 @@
 import { add, Stats } from "./constants";
 
-// Each needle moves one pixel per 7.5 points of its stat. Fitted against
+// KoLmafia reads each needle as how many pixels it sits from where it starts
+// (e.g. MA=3), and each pixel is 7.5 points of the stat. Fitted against
 // thousands of readings in KoLmafia session logs with known stats: attack
-// needles sit at 124 + floor((stat - 95) / 7.5), defense at
-// 240 + floor((stat - 87.5) / 7.5).
+// needles read floor((stat - 95) / 7.5), defense floor((stat - 87.5) / 7.5).
 const NEEDLE_SCALE = 7.5;
-const NEEDLE_ORIGIN = { attack: { pixel: 124, stat: 95 }, defense: { pixel: 240, stat: 87.5 } };
+const NEEDLE_ORIGIN = { attack: 95, defense: 87.5 };
 
-export function needleInterval(stat: number, left: number): [number, number] {
-  const origin = stat % 2 === 0 ? NEEDLE_ORIGIN.attack : NEEDLE_ORIGIN.defense;
-  const lo = origin.stat + (left - origin.pixel) * NEEDLE_SCALE;
+const origin = (stat: number) => (stat % 2 === 0 ? NEEDLE_ORIGIN.attack : NEEDLE_ORIGIN.defense);
+
+export function needleInterval(stat: number, reading: number): [number, number] {
+  const lo = origin(stat) + reading * NEEDLE_SCALE;
   return [lo, lo + NEEDLE_SCALE];
+}
+
+export function needleReading(stat: number, value: number): number {
+  return Math.floor((value - origin(stat)) / NEEDLE_SCALE);
 }
 
 // Tracks what we know about our stats as intervals. Starting stats and every
@@ -40,8 +45,8 @@ export class Tracker {
   observe(needles: Map<number, number>): boolean {
     const lo = [...this.lo] as Stats;
     const hi = [...this.hi] as Stats;
-    for (const [stat, left] of needles) {
-      const [nlo, nhi] = needleInterval(stat, left);
+    for (const [stat, reading] of needles) {
+      const [nlo, nhi] = needleInterval(stat, reading);
       lo[stat] = Math.max(lo[stat], nlo);
       hi[stat] = Math.min(hi[stat], nhi);
     }
@@ -50,8 +55,8 @@ export class Tracker {
       return true;
     }
     const fresh = Tracker.unknown();
-    for (const [stat, left] of needles)
-      [fresh.lo[stat], fresh.hi[stat]] = needleInterval(stat, left);
+    for (const [stat, reading] of needles)
+      [fresh.lo[stat], fresh.hi[stat]] = needleInterval(stat, reading);
     [this.lo, this.hi] = [fresh.lo, fresh.hi];
     return false;
   }

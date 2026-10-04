@@ -100,6 +100,16 @@ export const STYLE_DELTAS: Record<Upgrade, Stats[]> = {
   ],
 };
 
+export const PLAYS_PER_DAY = 5;
+
+// KoLmafia's names for each style, as in _bastilleCurrentStyles
+export const STYLE_KEYS: Record<Upgrade, string[]> = {
+  barb: ["BARBECUE", "BABAR", "BARBERSHOP"],
+  bridge: ["BRUTALIST", "DRAFTSMAN", "NOUVEAU"],
+  holes: ["CANNON", "CATAPULT", "GESTURE"],
+  moat: ["SHARKS", "LAVA", "TRUTH"],
+};
+
 // Named for the first game's rewards they give
 export const STYLE_NAMES: Record<Upgrade, string[]> = {
   barb: ["Barbarian Barbecue (myst stats)", "Babar (muscle stats)", "Barbershop (moxie stats)"],
@@ -118,6 +128,10 @@ export const STYLE_NAMES: Record<Upgrade, string[]> = {
 
 // 1313 option that cycles each upgrade
 export const UPGRADE_OPTION: Record<Upgrade, number> = { barb: 1, bridge: 2, holes: 3, moat: 4 };
+// The lobby only offers to start a game while we have plays left
+export const START_OPTION = 5;
+// Game over only offers this while we haven't locked in a score
+export const LOCK_IN = "Lock in your score";
 
 export function configurationDelta(config: Configuration): Stats {
   return UPGRADES.reduce<Stats>((acc, u) => add(acc, STYLE_DELTAS[u][config[u] - 1]), zero());
@@ -189,9 +203,9 @@ export const POOL_SIZE: Record<Menu, number> = {
   cheese: OPTIONS.cheese.length,
 };
 
-// Button text for each option. Two buttons per stat menu share a description
-// ("all attack up, all defense down"); which is the milder one was worked out
-// from the needles.
+// Button text for each option. Two buttons per stat menu are described the
+// same in game ("all attack up, all defense down"); which is the milder one
+// was worked out from the needles.
 export const BUTTONS: Record<Menu, Record<string, number>> = BUTTON_DATA;
 
 // *** Timeline: preps on turns 1,2,4,5,...; battles on turns 3,6,9,12,15
@@ -210,10 +224,9 @@ export function battleCheese(turn: number): number {
 // survivors grow in each stat independently.
 
 export type CastleKey = string;
-export type Castle = { key: CastleKey; description: string; stats: Stats };
+export type Castle = { key: CastleKey; stats: Stats };
 
 export const CASTLES: Castle[] = CASTLE_DATA.map((c) => ({
   key: c.key,
-  description: c.description,
   stats: stats(c.stats),
 }));

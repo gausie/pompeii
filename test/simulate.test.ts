@@ -6,6 +6,7 @@ import {
   Configuration,
   MENU_CHOICE,
   MENU_OPTIONS,
+  START_OPTION,
   startingStats,
   Stats,
 } from "../src/constants";
@@ -31,28 +32,21 @@ function greedyDay(settings: Partial<SimulatorSettings>): number[] {
   const ctx: Context = { boosts: sim.boosts() };
   let o = sim.open()!;
   let stats: Stats = BASELINE;
-  let cheese = 0;
-  let turn = 1;
   while (o.choice !== null) {
     if (o.choice === 1313) {
       stats = startingStats(o.config as Configuration);
-      [cheese, turn] = [0, 1];
-      o = sim.choose(1313, o.canStart ? 5 : 8);
+      const canStart = o.buttons.some((b) => b.option === START_OPTION);
+      o = sim.choose(1313, canStart ? START_OPTION : 8);
     } else if (o.choice === 1314) {
-      turn = o.turn ?? turn;
       o = sim.choose(1314, 3);
     } else if (o.choice === MENU_CHOICE.cheese) {
       const values = o.buttons.map((b) =>
-        optionCheese(MENU_OPTIONS.cheese[BUTTONS.cheese[b.name]], stats, cheese),
+        optionCheese(MENU_OPTIONS.cheese[BUTTONS.cheese[b.name]], stats, o.cheese),
       );
       o = sim.choose(o.choice, o.buttons[values.indexOf(Math.max(...values))].option);
-      cheese += o.cheeseGained;
-      turn += 1;
     } else if (o.choice === 1315) {
-      const battle = battleNumber(turn);
+      const battle = battleNumber(o.turn);
       o = sim.choose(1315, bestStance(ctx, stats, o.enemy!, battle).stance.option);
-      cheese += o.cheeseGained;
-      turn += 1;
     } else if (o.choice === 1316) o = sim.choose(1316, sim.playsLeft() > 0 ? 2 : 3);
   }
   return sim.finalScores;

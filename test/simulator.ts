@@ -10,34 +10,22 @@ import {
   GROWTH,
   isBattleTurn,
   LAST_TURN,
+  LOCK_IN,
   Menu,
   MENU_CHOICE,
   MENU_OPTIONS,
   MENUS,
+  PLAYS_PER_DAY,
   PrepOption,
   STANCES,
+  START_OPTION,
   Stats,
   UPGRADE_OPTION,
   UPGRADES,
 } from "../src/constants";
-import { Button, Client, Observation } from "../src/observation";
+import { BattleResult, Button, Client, Observation } from "../src/observation";
 import { fullPools, mulberry32, Rng, sample } from "../src/strategy";
-import { needleInterval } from "../src/tracker";
-
-function emptyObservation(): Observation {
-  return {
-    choice: null,
-    turn: null,
-    needles: new Map(),
-    config: {},
-    enemy: null,
-    canStart: false,
-    buttons: [],
-    cheeseGained: 0,
-    battle: null,
-    gameOver: null,
-  };
-}
+import { needleReading } from "../src/tracker";
 
 // An offline stand-in for the game so the engine can be exercised end to end.
 
@@ -54,7 +42,7 @@ export const DEFAULT_SETTINGS: SimulatorSettings = {
   seed: 1,
   styles: { barb: 3, bridge: 2, holes: 3, moat: 3 },
   castleWeights: CASTLES.map(() => 1),
-  playsPerDay: 5,
+  playsPerDay: PLAYS_PER_DAY,
   boosts: [0, 0, 0],
 };
 
@@ -75,6 +63,8 @@ export type AuditEntry = { choice: number; option: number; strength: Stats | nul
 type Match = {
   strength: Stats;
   hoard: number;
+  // What KoLmafia has seen announced; defensive cheese isn't
+  announced: number;
   clock: number;
   // Who we'll face in each battle. The bracket plays out the same whatever we
   // do, so it's decided up front.
@@ -92,6 +82,7 @@ export class Simulator implements Client {
   #match: Match | null = null;
   #plays: number;
   #locked: number | null = null;
+  #lastBattle: BattleResult | null = null;
   #rewardsClaimed = false;
   readonly #scores: number[] = [];
   readonly #transcript: AuditEntry[] = [];
@@ -120,7 +111,7 @@ export class Simulator implements Client {
   // *** Client
 
   current(): Observation {
-    return this.#view(emptyObservation());
+    return this.#view();
   }
 
   open(): Observation | null {
@@ -169,10 +160,9 @@ export class Simulator implements Client {
     if (this.#phase === null || PHASE_CHOICE[this.#phase] !== choice) {
       throw new Error(`Chose ${choice}.${option} while in ${this.#phase ?? "nothing"}`);
     }
-    const outcome = emptyObservation();
     switch (this.#phase) {
       case "lobby":
-        this.#inLobby(option, outcome);
+        this.#inLobby(option);
         break;
       case "planning":
         this.#openMenu(MENUS[option - 1]);
@@ -180,13 +170,13 @@ export class Simulator implements Client {
       case "offense":
       case "defense":
       case "cheese":
-        this.#take(this.#phase, option, outcome);
+        this.#take(this.#phase, option);
         break;
       case "siege":
-        this.#clash(option, outcome);
+        this.#clash(option);
         break;
       case "results":
-        this.#wrapUp(option, outcome);
+        this.#wrapUp(option);
         break;
     }
     this.#transcript.push({
@@ -194,7 +184,7 @@ export class Simulator implements Client {
       option,
       strength: this.#match ? ([...this.#match.strength] as Stats) : null,
     });
-    return this.#view(outcome);
+    return this.#view();
   }
 
   // *** Lobby: restyle the castle, start, or leave
@@ -230,6 +220,7 @@ export class Simulator implements Client {
     return {
       strength: startingStats(this.#styles),
       hoard: 0,
+      announced: 0,
       clock: 1,
       foes,
       untaken: fullPools(),
@@ -237,7 +228,7 @@ export class Simulator implements Client {
     };
   }
 
-  #inLobby(option: number, outcome: Observation): void {
+  #inLobby(option: number): void {
     const match = this.#match as Match;
     const upgrade = UPGRADES.find((u) => UPGRADE_OPTION[u] === option);
     if (upgrade) {
@@ -245,9 +236,7 @@ export class Simulator implements Client {
       this.#styles[upgrade] = ((this.#styles[upgrade] % 3) + 1) as 1 | 2 | 3;
       const after = configurationDelta(this.#styles);
       match.strength = match.strength.map((v, i) => v + after[i] - before[i]) as Stats;
-      // The needles only appear once you've changed something
-      outcome.needles = this.#needles();
-    } else if (option === 5 && this.#plays > 0) {
+    } else if (option === START_OPTION && this.#plays > 0) {
       this.#phase = "planning";
     } else if (option === 8) {
       this.#leave();
@@ -267,7 +256,7 @@ export class Simulator implements Client {
     this.#phase = menu;
   }
 
-  #take(menu: Menu, option: number, outcome: Observation): void {
+  #take(menu: Menu, option: number): void {
     const match = this.#match as Match;
     const id = match.offered[option - 1];
     match.untaken[menu] = match.untaken[menu].filter((x) => x !== id);
@@ -279,12 +268,12 @@ export class Simulator implements Client {
         const amount = this.#between(10, 20);
         match.hoard += amount;
         // Defensive cheese turns up without being announced
-        if (menu === "offense") outcome.cheeseGained += amount;
+        if (menu === "offense") match.announced += amount;
       }
     } else {
       const amount = this.#cheeseFrom(effect, match);
       match.hoard += amount;
-      outcome.cheeseGained += amount;
+      match.announced += amount;
     }
 
     match.clock += 1;
@@ -306,7 +295,7 @@ export class Simulator implements Client {
 
   // *** Battle
 
-  #clash(option: number, outcome: Observation): void {
+  #clash(option: number): void {
     const match = this.#match as Match;
     const foe = this.#foe(match);
     const stance = STANCES[option - 1];
@@ -319,16 +308,18 @@ export class Simulator implements Client {
         : (match.strength[defense] + stance.boost) * boost >= foe.strength[attack];
     }) as [boolean, boolean, boolean];
     const won = results.filter(Boolean).length >= 2;
-    outcome.battle = { attacking, results, won };
+    this.#lastBattle = { attacking, results, won };
 
     if (won) {
       let amount = 0;
       for (let turn = 0; turn < match.clock; turn++) amount += this.#between(10, 20);
       match.hoard += amount;
-      outcome.cheeseGained += amount;
+      match.announced += amount;
     }
 
     if (!won || match.clock >= LAST_TURN) {
+      // The final score is shown, so KoLmafia catches up
+      match.announced = match.hoard;
       this.#phase = "results";
       this.#plays -= 1;
       this.#scores.push(match.hoard);
@@ -344,7 +335,7 @@ export class Simulator implements Client {
 
   // *** Game over
 
-  #wrapUp(option: number, outcome: Observation): void {
+  #wrapUp(option: number): void {
     const match = this.#match as Match;
     this.#rewardsClaimed = true;
     if (option === 1) {
@@ -352,8 +343,6 @@ export class Simulator implements Client {
       this.#leave();
     } else if (option === 2) {
       this.#enterLobby();
-      // Unlike opening the rig, playing again shows the fresh needles
-      outcome.needles = this.#needles();
     } else {
       this.#leave();
     }
@@ -363,70 +352,67 @@ export class Simulator implements Client {
 
   #needles(): Map<number, number> {
     const match = this.#match as Match;
-    // Invert the engine's reading of the needles so the two agree
-    const left = (stat: number, value: number) => {
-      let pixel = 0;
-      while (needleInterval(stat, pixel + 1)[0] <= value) pixel++;
-      return pixel;
-    };
-    return new Map(match.strength.map((v, stat) => [stat, left(stat, v)] as [number, number]));
+    return new Map(
+      match.strength.map((v, stat) => [stat, needleReading(stat, v)] as [number, number]),
+    );
   }
 
-  #view(outcome: Observation): Observation {
-    outcome.choice = this.#phase === null ? null : PHASE_CHOICE[this.#phase];
+  #view(): Observation {
+    const choice = this.#phase === null ? null : PHASE_CHOICE[this.#phase];
     const match = this.#match;
-    if (!match || this.#phase === null) return outcome;
-    outcome.config = { ...this.#styles };
-
-    switch (this.#phase) {
-      case "lobby":
-        outcome.canStart = this.#plays > 0;
-        break;
-      case "planning":
-        outcome.turn = match.clock;
-        outcome.enemy = this.#foe(match).castle;
-        outcome.needles = this.#needles();
-        break;
-      case "siege":
-        outcome.enemy = this.#foe(match).castle;
-        outcome.needles = this.#needles();
-        break;
-      case "results":
-        outcome.gameOver = {
-          cheese: match.hoard,
-          playsLeft: this.#plays,
-          canLockIn: this.#locked === null,
-        };
-        break;
-      default: {
-        const menu = this.#phase;
-        outcome.needles = this.#needles();
-        outcome.buttons = match.offered.map((id, i) => ({ option: i + 1, ...label(menu, id) }));
-      }
+    if (!match || this.#phase === null) {
+      return {
+        choice,
+        buttons: [],
+        config: {},
+        needles: new Map(),
+        turn: 0,
+        cheese: 0,
+        enemy: null,
+        lastBattle: null,
+      };
     }
-    return outcome;
+    return {
+      choice,
+      buttons: this.#buttons(this.#phase, match),
+      config: { ...this.#styles },
+      needles: this.#needles(),
+      turn: match.clock,
+      cheese: match.announced,
+      enemy: this.#foe(match).castle,
+      lastBattle: this.#lastBattle,
+    };
+  }
+
+  #buttons(phase: Phase, match: Match): Button[] {
+    const named = (names: string[]) => names.map((name, i) => ({ option: i + 1, name }));
+    switch (phase) {
+      case "lobby":
+        return [
+          ...UPGRADES.map((u) => ({ option: UPGRADE_OPTION[u], name: "(secret choice)" })),
+          ...(this.#plays > 0 ? [{ option: START_OPTION, name: "(secret choice)" }] : []),
+          { option: 8, name: "Walk Away" },
+        ];
+      case "planning":
+        return named([
+          "Try to improve your offensive capabilities",
+          "Focus on defense",
+          "Look for cheese",
+        ]);
+      case "siege":
+        return STANCES.map(({ option, name }) => ({ option, name }));
+      case "results":
+        return [
+          ...(this.#locked === null ? [{ option: 1, name: LOCK_IN }] : []),
+          { option: 2, name: "Play again" },
+          { option: 3, name: "I'm done for now" },
+        ];
+      default:
+        return match.offered.map((id, i) => ({ option: i + 1, name: buttonName(phase, id) }));
+    }
   }
 }
 
-function label(menu: Menu, id: number): Omit<Button, "option"> {
-  const name = Object.keys(BUTTONS[menu]).find((n) => BUTTONS[menu][n] === id) as string;
-  return { name, description: hint(MENU_OPTIONS[menu][id]) };
-}
-
-const AREAS = ["Military", "Castle", "Psychological"];
-
-// Mimics the blue hint shown under each button
-function hint(option: PrepOption): string {
-  if (option.kind !== "stats") return "Gain cheese";
-  const listed = (sign: number) =>
-    option.delta
-      .map((d, stat) =>
-        Math.sign(d) === sign ? `${AREAS[stat >> 1]} ${stat % 2 ? "defense" : "attack"}` : null,
-      )
-      .filter(Boolean)
-      .join(" and ");
-  const parts = [`Increase ${listed(1)}`];
-  if (option.delta.some((d) => d < 0)) parts.push(`decrease ${listed(-1)}`);
-  if (option.cheese) parts.push("get cheese");
-  return parts.join(", ");
+function buttonName(menu: Menu, id: number): string {
+  return Object.keys(BUTTONS[menu]).find((name) => BUTTONS[menu][name] === id) as string;
 }

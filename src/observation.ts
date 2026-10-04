@@ -1,9 +1,12 @@
 import { CastleKey, Configuration } from "./constants";
 
-// What the engine can see after each request. The KoLmafia client builds this
-// from KoL's HTML; the simulator builds it straight from its game state.
+// What the engine can see after each request: the choice we're in, its
+// buttons, and KoLmafia's running record of the castle and the game. That
+// record carries over between games, so the game fields describe the game in
+// progress or, outside one, the last one. The KoLmafia client reads it from
+// KoLmafia's preferences; the simulator mirrors it from its own state.
 
-export type Button = { option: number; name: string; description: string };
+export type Button = { option: number; name: string };
 
 export type BattleResult = {
   attacking: boolean;
@@ -12,25 +15,19 @@ export type BattleResult = {
   won: boolean;
 };
 
-export type GameOver = { cheese: number; playsLeft: number; canLockIn: boolean };
-
 export type Observation = {
   // Current choice adventure, or null if we're no longer in one
   choice: number | null;
-  // Only shown on the main game screen (1314)
-  turn: number | null;
-  // Needle position (pixels from the left) by stat index
-  needles: Map<number, number>;
-  config: Partial<Configuration>;
-  // Castle we'll fight next, if shown
-  enemy: CastleKey | null;
-  // Whether the configuration screen offers to start a game
-  canStart: boolean;
   buttons: Button[];
-  // Cheese announced as gained by the request that produced this
-  cheeseGained: number;
-  battle: BattleResult | null;
-  gameOver: GameOver | null;
+  config: Partial<Configuration>;
+  // Needle readings by stat index, in KoLmafia's units (see tracker.ts)
+  needles: Map<number, number>;
+  turn: number;
+  // Cheese announced so far. Some cheese turns up unannounced, so this can
+  // run behind until the game is over and the final score is shown.
+  cheese: number;
+  enemy: CastleKey | null;
+  lastBattle: BattleResult | null;
 };
 
 // Everything the engine needs from the outside world

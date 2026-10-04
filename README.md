@@ -16,8 +16,10 @@ you placed on today's leaderboard; `pompeii scores` shows just that.
 ## How it decides
 
 - Your stats are known exactly: everyone starts from the same baseline, and every style and
-  prep option changes them by a known amount. The needles double-check that, and would work out
-  any button KoL adds that it doesn't recognise.
+  prep option changes them by a known amount. The needles double-check that, and keep it on track
+  if KoL adds a button it doesn't recognise.
+- It reads the game from what KoLmafia already tracks (the `_bastille*` preferences and the
+  choice options), so the only page it parses itself is the leaderboard.
 - Every castle of a type starts with the same stats, and survivors grow 5-25% per stat each round
   of the bracket, so the odds of each battle comparison are computed exactly.
 - Stances are chosen to maximise the chance of winning the battle. Configurations, menus and
