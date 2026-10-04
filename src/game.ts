@@ -14,28 +14,30 @@ import {
   userConfirm,
   visitUrl,
 } from "kolmafia";
-import { $item, $items, get, have } from "libram";
+import { $item, get, have } from "libram";
 
 import {
   BOOST_EFFECTS,
   BOOST_POTIONS,
+  BUTTONS,
   CASTLES,
   CastleKey,
   Configuration,
+  MENUS,
   PLAYS_PER_DAY,
   STAT_NAMES,
+  Stats,
   STYLE_KEYS,
   UPGRADES,
 } from "./constants";
 import { BattleResult, Client, Observation } from "./observation";
+import { fullPools, GameState, Pools } from "./strategy";
 
-// Everything about talking to KoL through KoLmafia lives here. KoLmafia
-// already tracks Bastille Battalion as we play, so we read the game from what
-// it records rather than from the pages themselves.
+// Everything about talking to KoL through KoLmafia lives here. The game
+// itself comes from what KoLmafia tracks as we play.
 
 const RIG = $item`Bastille Battalion control rig`;
 const VOUCHER = $item`Bastille Battalion control rig loaner voucher`;
-const DAILY_ITEMS = $items`Brutal brogues, Draftsman's driving gloves, Nouveau nosering`;
 
 // The preferences KoLmafia keeps Bastille Battalion in
 export type BastillePrefs = {
@@ -46,6 +48,7 @@ export type BastillePrefs = {
   _bastilleCheese: number;
   _bastilleLastBattleWon: boolean;
   _bastilleLastBattleResults: string;
+  _bastilleOptionsTaken: string;
 };
 
 export type MafiaState = {
@@ -56,15 +59,11 @@ export type MafiaState = {
   prefs: BastillePrefs;
 };
 
-// e.g. MA=3,MD=7,CA=0,...
-function readNeedles(pref: string): Map<number, number> {
-  const needles = new Map<number, number>();
-  for (const part of pref.split(",")) {
-    const [name, value] = part.split("=");
-    const stat = STAT_NAMES.indexOf(name as (typeof STAT_NAMES)[number]);
-    if (stat >= 0 && value !== undefined) needles.set(stat, Number(value));
-  }
-  return needles;
+// e.g. MA=120,MD=140,CA=100,...
+function readStats(pref: string): Stats | null {
+  const named = new Map(pref.split(",").map((part) => part.split("=") as [string, string]));
+  const stats = STAT_NAMES.map((name) => Number(named.get(name)));
+  return stats.every((v) => Number.isFinite(v)) ? (stats as Stats) : null;
 }
 
 const STYLES = new Map(
@@ -94,30 +93,37 @@ function readBattle(prefs: BastillePrefs): BattleResult | null {
   };
 }
 
-export function readObservation({ choice, options, prefs }: MafiaState): Observation {
+// What's left to be offered once these buttons have been taken this game
+export function poolsAfter(taken: string[]): Pools {
+  const pools = fullPools();
+  for (const menu of MENUS) {
+    const ids = new Set(taken.map((name) => BUTTONS[menu][name]));
+    pools[menu] = pools[menu].filter((id) => !ids.has(id));
+  }
+  return pools;
+}
+
+function readGame(prefs: BastillePrefs): GameState | null {
+  const stats = readStats(prefs._bastilleStats);
+  if (!stats) return null;
   const enemy = prefs._bastilleEnemyCastle;
+  return {
+    turn: prefs._bastilleGameTurn,
+    stats,
+    cheese: prefs._bastilleCheese,
+    pools: poolsAfter(prefs._bastilleOptionsTaken.split(",").filter(Boolean)),
+    enemy: CASTLES.some((c) => c.key === enemy) ? (enemy as CastleKey) : null,
+  };
+}
+
+export function readObservation({ choice, options, prefs }: MafiaState): Observation {
   return {
     choice,
     buttons: Object.entries(options).map(([option, name]) => ({ option: Number(option), name })),
     config: readConfiguration(prefs._bastilleCurrentStyles),
-    needles: readNeedles(prefs._bastilleStats),
-    turn: prefs._bastilleGameTurn,
-    cheese: prefs._bastilleCheese,
-    enemy: CASTLES.some((c) => c.key === enemy) ? (enemy as CastleKey) : null,
+    game: readGame(prefs),
     lastBattle: readBattle(prefs),
   };
-}
-
-// String.prototype.matchAll isn't reliably available in KoLmafia's Rhino
-function allMatches(text: string, pattern: RegExp): RegExpExecArray[] {
-  const re = new RegExp(
-    pattern.source,
-    pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`,
-  );
-  const result: RegExpExecArray[] = [];
-  let match: RegExpExecArray | null;
-  while ((match = re.exec(text)) !== null) result.push(match);
-  return result;
 }
 
 export type Score = { playerId: number; name: string; cheese: number };
@@ -126,13 +132,15 @@ export type Score = { playerId: number; name: string; cheese: number };
 // doesn't read this one.
 export function parseHiScores(html: string): Score[] | null {
   if (!html.includes("Cheesemasters:")) return null;
-  return allMatches(html, /showplayer\.php\?who=(\d+)>([^<]+)<\/a>.*?<td>([\d,]+) curds/g).map(
-    ([, id, name, cheese]) => ({
-      playerId: Number(id),
-      name,
-      cheese: Number(cheese.replace(/,/g, "")),
-    }),
-  );
+  // String.prototype.matchAll isn't reliably available in KoLmafia's Rhino
+  const re = /showplayer\.php\?who=(\d+)>([^<]+)<\/a>.*?<td>([\d,]+) curds/g;
+  const scores: Score[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(html)) !== null) {
+    const [, id, name, cheese] = match;
+    scores.push({ playerId: Number(id), name, cheese: Number(cheese.replace(/,/g, "")) });
+  }
+  return scores;
 }
 
 function readPrefs(): BastillePrefs {
@@ -144,6 +152,7 @@ function readPrefs(): BastillePrefs {
     _bastilleCheese: get("_bastilleCheese"),
     _bastilleLastBattleWon: get("_bastilleLastBattleWon"),
     _bastilleLastBattleResults: get("_bastilleLastBattleResults"),
+    _bastilleOptionsTaken: get("_bastilleOptionsTaken", ""),
   };
 }
 
@@ -191,14 +200,17 @@ export class GameClient implements Client {
     return visitUrl(`choice.php?whichchoice=${choice}&option=${option}&pwd=${myHash()}`);
   }
 
-  // Today's leaderboard, or null if we can't get to it. Viewing it leaves the
-  // rig. Never spends a loaner voucher just to look.
+  // Today's leaderboard, or null if we can't get to it. Never spends a loaner
+  // voucher just to look.
   hiScores(): Score[] | null {
     if (!have(RIG)) return null;
     let page = this.current();
     if (page.choice === null) page = this.useRig(RIG);
     if (page.choice !== 1313) return null;
-    return parseHiScores(this.visitChoice(1313, 6));
+    const html = this.visitChoice(1313, 6);
+    // With plays left the board keeps us in the lobby
+    if (handlingChoice()) this.visitChoice(1313, 8);
+    return parseHiScores(html);
   }
 
   boosts(): [number, number, number] {
@@ -206,7 +218,12 @@ export class GameClient implements Client {
   }
 
   rewardsPending(): boolean {
-    return !DAILY_ITEMS.some((item) => have(item));
+    return !get("_bastilleRewardsCollected", false);
+  }
+
+  // Today's locked-in score, or 0 if we haven't locked one in
+  lockedInScore(): number {
+    return get("_bastilleLockedInScore", 0);
   }
 
   playsLeft(): number {

@@ -72,8 +72,3 @@ export function enemyChance(
 ): number {
   return chanceBelow(distribution(castle, stat, battle), value, inclusive);
 }
-
-export function enemyMedian(castle: CastleKey, stat: number, battle: number): number {
-  const { values, cumulative } = distribution(castle, stat, battle);
-  return values[cumulative.findIndex((c) => c >= 0.5)];
-}

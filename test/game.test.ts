@@ -1,8 +1,8 @@
 import { readFileSync } from "fs";
 import { describe, expect, it, vi } from "vitest";
 
-import { CA, CD, MA, MD, PA, PD } from "../src/constants";
-import { BastillePrefs, parseHiScores, readObservation } from "../src/game";
+import { BastillePrefs, parseHiScores, poolsAfter, readObservation } from "../src/game";
+import { fullPools } from "../src/strategy";
 
 // libram needs KoLmafia to load; game.ts only touches it when playing
 vi.mock("libram", () => ({ $item: () => ({}), $items: () => [], get: vi.fn(), have: vi.fn() }));
@@ -13,12 +13,13 @@ const fixture = (name: string) =>
 // KoLmafia's preferences on turn 4 of a real game
 const PREFS: BastillePrefs = {
   _bastilleCurrentStyles: "BARBECUE,DRAFTSMAN,GESTURE,SHARKS",
-  _bastilleStats: "MA=3,MD=7,CA=0,CD=4,PA=3,PD=4",
+  _bastilleStats: "MA=120,MD=140,CA=100,CD=120,PA=120,PD=120",
   _bastilleEnemyCastle: "berserker",
   _bastilleGameTurn: 4,
   _bastilleCheese: 278,
   _bastilleLastBattleWon: true,
   _bastilleLastBattleResults: "MA>MD,CA>CD,PA>PD",
+  _bastilleOptionsTaken: "Raid the cave,Rob the suburb",
 };
 
 const read = (prefs: Partial<BastillePrefs> = {}, options: Record<number, string> = {}) =>
@@ -33,17 +34,13 @@ describe("readObservation", () => {
       { option: 2, name: "Scrape out the mine" },
     ]);
     expect(page.config).toEqual({ barb: 1, bridge: 2, holes: 3, moat: 1 });
-    expect(Object.fromEntries(page.needles)).toEqual({
-      [MA]: 3,
-      [MD]: 7,
-      [CA]: 0,
-      [CD]: 4,
-      [PA]: 3,
-      [PD]: 4,
+    expect(page.game).toMatchObject({
+      turn: 4,
+      stats: [120, 140, 100, 120, 120, 120],
+      cheese: 278,
+      enemy: "berserker",
     });
-    expect(page.turn).toBe(4);
-    expect(page.cheese).toBe(278);
-    expect(page.enemy).toBe("berserker");
+    expect(page.game?.pools.cheese).toHaveLength(14);
     expect(page.lastBattle).toEqual({ attacking: true, results: [true, true, true], won: true });
   });
 
@@ -65,11 +62,21 @@ describe("readObservation", () => {
       _bastilleStats: "",
       _bastilleEnemyCastle: "",
       _bastilleLastBattleResults: "",
+      _bastilleOptionsTaken: "",
     });
     expect(page.config).toEqual({});
-    expect(page.needles.size).toBe(0);
-    expect(page.enemy).toBeNull();
+    expect(page.game).toBeNull();
     expect(page.lastBattle).toBeNull();
+  });
+});
+
+describe("poolsAfter", () => {
+  it("leaves out the buttons already taken this game", () => {
+    const pools = poolsAfter(["Use the wishing well", "Improve the keep", "Something new"]);
+    expect(pools.cheese).not.toContain(16);
+    expect(pools.offense).not.toContain(9);
+    expect(pools.cheese).toHaveLength(fullPools().cheese.length - 1);
+    expect(pools.defense).toEqual(fullPools().defense);
   });
 });
 

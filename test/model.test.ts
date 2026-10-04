@@ -1,10 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { CD, configurationDelta, MA, MD, MENU_OPTIONS, PA, PD, Stats } from "../src/constants";
-import { enemyChance, enemyMedian } from "../src/enemy";
-import { needleInterval, Tracker } from "../src/tracker";
-
-const delta = (option: { kind: string; delta?: Stats }) => option.delta as Stats;
+import { CD, configurationDelta, MA } from "../src/constants";
+import { enemyChance } from "../src/enemy";
 
 describe("configurationDelta", () => {
   it("moves military and psychological when switching Barbershop to Barbarian Barbecue", () => {
@@ -22,69 +19,22 @@ describe("configurationDelta", () => {
   });
 });
 
-describe("needleInterval", () => {
-  // Readings from KoLmafia session logs with known stats
-  it.each([
-    [MA, 100, 0],
-    [MA, 110, 2],
-    [PA, 115, 2],
-    [PA, 135, 5],
-    [MD, 90, 0],
-    [MD, 105, 2],
-    [PD, 130, 5],
-    [PD, 150, 8],
-  ])("puts stat %i at %i on reading %i", (stat, value, reading) => {
-    const [lo, hi] = needleInterval(stat, reading);
-    expect(value).toBeGreaterThanOrEqual(lo);
-    expect(value).toBeLessThan(hi);
-  });
-});
-
-describe("Tracker", () => {
-  it("narrows stats as needles are observed across known shifts", () => {
-    const tracker = Tracker.unknown();
-    tracker.observe(new Map([[MA, 0]]));
-    expect(tracker.lo[MA]).toBe(95);
-    expect(tracker.hi[MA]).toBe(102.5);
-    // +5 MA keeps the same reading, so MA was below 97.5
-    tracker.shift(delta(MENU_OPTIONS.offense[1]));
-    tracker.observe(new Map([[MA, 0]]));
-    expect(tracker.lo[MA]).toBe(100);
-    expect(tracker.hi[MA]).toBe(102.5);
-  });
-
-  it("reports exact stats exactly", () => {
-    const stats: Stats = [100, 90, 110, 100, 110, 110];
-    expect(Tracker.exactly(stats).estimate()).toEqual(stats);
-  });
-
-  it("starts over if the needles contradict everything", () => {
-    const tracker = Tracker.exactly([100, 100, 100, 100, 100, 100]);
-    expect(tracker.observe(new Map([[PD, 60]]))).toBe(false);
-    expect(tracker.lo[PD]).toBe(needleInterval(PD, 60)[0]);
-    // The other stats go back to unknown rather than keeping stale values
-    expect(tracker.hi[MA] - tracker.lo[MA]).toBeGreaterThan(100);
-  });
-});
-
 describe("enemy stats", () => {
   it("are exact in the first battle", () => {
     // Barracks start with 120 military attack
     expect(enemyChance("barracks", MA, 1, 120, false)).toBe(0);
     expect(enemyChance("barracks", MA, 1, 120, true)).toBe(1);
-    expect(enemyMedian("barracks", MA, 1)).toBe(120);
   });
 
   it("grow 5-25% a round, rounding down", () => {
     expect(enemyChance("barracks", MA, 2, 126, false)).toBe(0);
     expect(enemyChance("barracks", MA, 2, 126, true)).toBeCloseTo(1 / 21);
     expect(enemyChance("barracks", MA, 2, 150, true)).toBeCloseTo(1);
-    expect(enemyMedian("barracks", MA, 2)).toBe(138);
   });
 
   it("has a sensible spread after four rounds", () => {
-    const median = enemyMedian("shieldmaster", CD, 5);
-    expect(median).toBeGreaterThan(130 * 1.15 ** 4 * 0.97);
-    expect(median).toBeLessThan(130 * 1.15 ** 4 * 1.03);
+    const typical = 130 * 1.15 ** 4;
+    expect(enemyChance("shieldmaster", CD, 5, typical * 0.97, true)).toBeLessThan(0.5);
+    expect(enemyChance("shieldmaster", CD, 5, typical * 1.03, true)).toBeGreaterThan(0.5);
   });
 });

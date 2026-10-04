@@ -11,11 +11,11 @@ import {
   STANCES,
   START_OPTION,
   STAT_NAMES,
-  startingStats,
   Stats,
   STYLE_NAMES,
   UPGRADE_OPTION,
   UPGRADES,
+  WELL_COST,
 } from "./constants";
 import { Client, Observation } from "./observation";
 import {
@@ -26,9 +26,7 @@ import {
   evaluateConfigurations,
   evaluateMenus,
   GameState,
-  newGame,
 } from "./strategy";
-import { Tracker } from "./tracker";
 
 export type Options = {
   // Styles we want for the first game's rewards; anything unset is optimised
@@ -36,25 +34,14 @@ export type Options = {
   games: number;
   samples: number;
   lockIn: boolean;
-  // A score locked in earlier today, before ascending. We get another five
-  // plays, but only a score that beats it is worth locking in.
-  toBeat: number;
 };
-
-// Everything about the game in progress except our stats, which the tracker owns
-type Progress = Omit<GameState, "stats">;
 
 const fmt = (n: number) => Math.round(n).toString();
 const fmtStats = (stats: Stats) => stats.map((v, i) => `${STAT_NAMES[i]} ${fmt(v)}`).join(", ");
 
 export class Engine {
   ctx: Context;
-  tracker = Tracker.unknown();
-  config: Partial<Configuration> = {};
-  progress: Progress | null = null;
   gamesPlayed = 0;
-  // Score worth locking in, given the games still to come
-  lockTarget = -Infinity;
   // The best configuration only changes once the rewards are collected
   private configurations = new Map<string, Configuration>();
 
@@ -81,8 +68,7 @@ export class Engine {
 
   private loop(first: Observation): void {
     let observation = first;
-    for (let guard = 0; guard < 500; guard++) {
-      this.observe(observation);
+    for (;;) {
       let next: Observation | null;
       switch (observation.choice) {
         case 1313:
@@ -90,7 +76,7 @@ export class Engine {
             this.client.choose(1313, 8);
             return;
           }
-          next = this.startGame();
+          next = this.startGame(observation);
           break;
         case 1314:
           next = this.chooseMenu(observation);
@@ -115,80 +101,68 @@ export class Engine {
     }
   }
 
-  // Before a game our stats follow from the configuration alone; during one
-  // the needles check the stats we've tracked. In the lobby the needles may
-  // still be the last game's, so we go by the configuration.
-  private observe(observation: Observation): void {
-    if (Object.keys(observation.config).length === 4) this.config = observation.config;
-    if (observation.choice === 1313) {
-      if (Object.keys(this.config).length === 4) {
-        this.tracker = Tracker.exactly(startingStats(this.config as Configuration));
-      }
-      return;
-    }
-    if (observation.needles.size === 0) return;
-    if (!this.tracker.observe(observation.needles)) {
-      this.log("Needles disagreed with tracked stats; resetting from the needles.", "gray");
-    }
-  }
-
   private canStart(observation: Observation): boolean {
     return observation.buttons.some((b) => b.option === START_OPTION);
   }
 
-  // What the strategy needs to know about the game in progress
-  private state(): GameState {
-    return { ...(this.progress as Progress), stats: this.tracker.estimate() };
+  private state(observation: Observation): GameState {
+    if (!observation.game) throw new Error("KoLmafia isn't tracking this game's stats.");
+    return observation.game;
+  }
+
+  // Only the score we lock in counts, so with games to come after this one
+  // there's a bar this one has to clear to be worth locking in
+  private lockTarget(gamesAfter: number): number {
+    return this.options.lockIn && gamesAfter > 0
+      ? lockInBar(this.ctx.boosts, gamesAfter)
+      : -Infinity;
   }
 
   // *** Setting up
 
-  private startGame(): Observation {
+  private bestConfiguration(fixed: Partial<Configuration>): Configuration {
+    const key = JSON.stringify(fixed);
+    const cached = this.configurations.get(key);
+    if (cached) return cached;
+    const allowed = (config: Configuration) =>
+      UPGRADES.every((u) => fixed[u] === undefined || fixed[u] === config[u]);
+    const best = evaluateConfigurations(this.ctx, allowed, this.options.samples)[0].choice;
+    this.configurations.set(key, best);
+    return best;
+  }
+
+  private startGame(lobby: Observation): Observation {
     const rewards = this.client.rewardsPending();
     const fixed = rewards ? this.options.rewards : {};
-
-    // Only the score we lock in counts, so with games to come after this one
-    // there's a bar this one has to clear to be worth locking in
     const gamesAfter = Math.min(
       this.client.playsLeft() - 1,
       this.options.games - this.gamesPlayed - 1,
     );
-    this.lockTarget =
-      this.options.lockIn && gamesAfter > 0
-        ? Math.max(lockInBar(this.ctx.boosts, gamesAfter), this.options.toBeat + 1)
-        : -Infinity;
 
-    const key = JSON.stringify(fixed);
-    let target = this.configurations.get(key);
-    if (!target) {
-      const allowed = (config: Configuration) =>
-        UPGRADES.every((u) => fixed[u] === undefined || fixed[u] === config[u]);
-      target = evaluateConfigurations(this.ctx, allowed, this.options.samples)[0].choice;
-      this.configurations.set(key, target);
-    }
-    const chosen = target;
+    const chosen = this.bestConfiguration(fixed);
     this.log(
       `Configuration: ${UPGRADES.map((u) => STYLE_NAMES[u][chosen[u] - 1]).join(", ")}` +
         `${rewards ? " (rewards pending)" : ""}`,
       "blue",
     );
-    if (this.lockTarget > -Infinity) {
+    const bar = this.lockTarget(gamesAfter);
+    if (bar > -Infinity) {
       this.log(
-        `${gamesAfter} more game${gamesAfter === 1 ? "" : "s"} after this, so locking in at ${fmt(this.lockTarget)}+`,
+        `${gamesAfter} more game${gamesAfter === 1 ? "" : "s"} after this, so locking in at ${fmt(bar)}+`,
         "blue",
       );
     }
+    let config = lobby.config;
     for (const upgrade of UPGRADES) {
-      for (let i = 0; i < 3 && this.config[upgrade] !== chosen[upgrade]; i++) {
-        this.observe(this.client.choose(1313, UPGRADE_OPTION[upgrade]));
+      for (let i = 0; i < 3 && config[upgrade] !== chosen[upgrade]; i++) {
+        config = this.client.choose(1313, UPGRADE_OPTION[upgrade]).config;
       }
-      if (this.config[upgrade] !== chosen[upgrade]) throw new Error(`Couldn't set ${upgrade}`);
+      if (config[upgrade] !== chosen[upgrade]) throw new Error(`Couldn't set ${upgrade}`);
     }
 
     const start = this.client.choose(1313, START_OPTION);
-    this.progress = newGame(this.tracker.estimate(), start.enemy);
     this.log(
-      `Game ${this.gamesPlayed + 1} started. Stats: ${fmtStats(this.tracker.estimate())}`,
+      `Game ${this.gamesPlayed + 1} started. Stats: ${fmtStats(this.state(start).stats)}`,
       "blue",
     );
     return start;
@@ -196,26 +170,11 @@ export class Engine {
 
   // *** Playing
 
-  private ensureProgress(observation: Observation): Progress {
-    // If we've picked up a game in progress we don't know which options were
-    // already taken; assume none were and go by the needles.
-    if (!this.progress) this.progress = newGame(this.tracker.estimate(), observation.enemy);
-    this.progress.turn = observation.turn;
-    this.progress.cheese = observation.cheese;
-    this.progress.enemy = observation.enemy;
-    return this.progress;
-  }
-
   private chooseMenu(observation: Observation): Observation {
-    const progress = this.ensureProgress(observation);
-    const ranked = evaluateMenus(
-      this.ctx,
-      this.state(),
-      this.options.samples,
-      progress.turn * 1000,
-    );
+    const game = this.state(observation);
+    const ranked = evaluateMenus(this.ctx, game, this.options.samples, game.turn * 1000);
     this.log(
-      `Turn ${progress.turn} vs ${progress.enemy ?? "?"} (${fmt(progress.cheese)} cheese): ${ranked
+      `Turn ${game.turn} vs ${game.enemy ?? "?"} (${fmt(game.cheese)} cheese): ${ranked
         .map((r) => `${r.choice} ${fmt(r.value)}`)
         .join(", ")}`,
     );
@@ -223,57 +182,50 @@ export class Engine {
   }
 
   private chooseButton(observation: Observation): Observation {
-    const progress = this.ensureProgress(observation);
+    const game = this.state(observation);
     const menu = MENUS.find((m) => MENU_CHOICE[m] === observation.choice) as Menu;
     const known = observation.buttons.flatMap((button) => {
       const id = BUTTONS[menu][button.name];
       return id === undefined ? [] : [{ button, id }];
     });
     if (known.length === 0) {
-      // Nothing we recognise; take the first and let the needles sort us out
+      // Nothing we recognise; take the first and let KoLmafia track the rest
       this.log(`  Unrecognised buttons; taking ${observation.buttons[0].name}`, "red");
-      this.tracker = Tracker.unknown();
       return this.client.choose(observation.choice as number, observation.buttons[0].option);
+    }
+
+    const well = known.find((k) => MENU_OPTIONS[menu][k.id].kind === "well");
+    if (well && game.cheese >= WELL_COST) {
+      this.log(`  -> ${well.button.name}`, "green");
+      return this.client.choose(observation.choice as number, well.button.option);
     }
 
     const ranked = evaluateButtons(
       this.ctx,
-      this.state(),
+      game,
       menu,
       known.map((k) => k.id),
       this.options.samples,
-      progress.turn * 1000,
+      game.turn * 1000,
     );
-    // With games to come, a game that isn't good enough to lock in is just
-    // practice, so gamble on the wishing well: it's worth as much as the
-    // other big hauls on average, and its all-or-nothing 300 makes more of
-    // our games lockable. Simulated, this lifts days scoring 1900+ by about
-    // three percentage points without costing anything on average.
-    let pick = ranked[0];
-    if (this.lockTarget > -Infinity && progress.cheese >= 10) {
-      pick = ranked.find((r) => MENU_OPTIONS[menu][known[r.choice].id].kind === "well") ?? pick;
-    }
-    const { button, id } = known[pick.choice];
+    const { button } = known[ranked[0].choice];
     this.log(`  ${ranked.map((r) => `${known[r.choice].button.name} ${fmt(r.value)}`).join(", ")}`);
     this.log(`  -> ${button.name}`, "green");
-
-    const option = MENU_OPTIONS[menu][id];
-    if (option.kind === "stats") this.tracker.shift(option.delta);
-    progress.pools[menu] = progress.pools[menu].filter((x) => x !== id);
     return this.client.choose(observation.choice as number, button.option);
   }
 
   private fight(observation: Observation): Observation {
-    const progress = this.ensureProgress(observation);
-    const battle = battleNumber(progress.turn);
-    const enemy = progress.enemy ?? "masterofnone";
-    const { stance, chances } = bestStance(this.ctx, this.tracker.estimate(), enemy, battle);
+    const game = this.state(observation);
+    const battle = battleNumber(game.turn);
+    const enemy = game.enemy;
+    if (!enemy) throw new Error("KoLmafia doesn't know which castle we're fighting.");
+    const { stance, chances } = bestStance(this.ctx, game.stats, enemy, battle);
     this.log(
       `Battle ${battle} vs ${enemy}: ${STANCES.map((s, i) => `${s.name} ${fmt(chances[i] * 100)}%`).join(", ")}`,
     );
     const result = this.client.choose(1315, stance.option);
     const outcome = result.lastBattle;
-    const gained = result.cheese - progress.cheese;
+    const gained = this.state(result).cheese - game.cheese;
     this.log(
       `  ${outcome?.won ? "Won" : "Lost"} (${outcome?.attacking ? "attacking" : "defending"})` +
         `${gained > 0 ? `, +${gained} cheese` : ""}`,
@@ -285,18 +237,15 @@ export class Engine {
   private endGame(observation: Observation): Observation | null {
     // The rewards arrive with whichever option we pick here
     this.gamesPlayed += 1;
-    this.progress = null;
-    const { cheese } = observation;
+    const { cheese } = this.state(observation);
     this.log(`Game over: ${cheese} cheese.`, "blue");
     const remaining = Math.min(this.client.playsLeft(), this.options.games - this.gamesPlayed);
     const canLockIn = observation.buttons.some((b) => b.name === LOCK_IN);
 
-    // Lock in if we hit what we were going for, or if this is the last game
-    // and it beats anything locked in earlier today. Once locked in there's
-    // nothing more to play for today.
-    const target = remaining > 0 ? this.lockTarget : -Infinity;
-    const worth = cheese >= target && cheese > this.options.toBeat;
-    if (this.options.lockIn && canLockIn && worth) {
+    // Lock in if we hit what we were going for, or if this is the last game.
+    // Once locked in there's nothing more to play for today.
+    const target = this.lockTarget(remaining);
+    if (this.options.lockIn && canLockIn && cheese >= target) {
       this.log(
         `Locking in ${cheese}${target > -Infinity ? ` (aimed for ${fmt(target)})` : ""}.`,
         "green",

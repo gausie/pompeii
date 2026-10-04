@@ -41,12 +41,12 @@ function greedyDay(settings: Partial<SimulatorSettings>): number[] {
       o = sim.choose(1314, 3);
     } else if (o.choice === MENU_CHOICE.cheese) {
       const values = o.buttons.map((b) =>
-        optionCheese(MENU_OPTIONS.cheese[BUTTONS.cheese[b.name]], stats, o.cheese),
+        optionCheese(MENU_OPTIONS.cheese[BUTTONS.cheese[b.name]], stats, o.game!.cheese),
       );
       o = sim.choose(o.choice, o.buttons[values.indexOf(Math.max(...values))].option);
     } else if (o.choice === 1315) {
-      const battle = battleNumber(o.turn);
-      o = sim.choose(1315, bestStance(ctx, stats, o.enemy!, battle).stance.option);
+      const battle = battleNumber(o.game!.turn);
+      o = sim.choose(1315, bestStance(ctx, stats, o.game!.enemy!, battle).stance.option);
     } else if (o.choice === 1316) o = sim.choose(1316, sim.playsLeft() > 0 ? 2 : 3);
   }
   return sim.finalScores;
@@ -67,7 +67,6 @@ function engineDay(settings: Partial<SimulatorSettings>): number {
     games: GAMES,
     samples: SAMPLES,
     lockIn: true,
-    toBeat: 0,
   }).run();
   return sim.lockedScore ?? 0;
 }

@@ -23,7 +23,6 @@ function engineScores(boosts: [number, number, number], days: number, firstSeed:
       games: 5,
       samples: 16,
       lockIn: false,
-      toBeat: 0,
     }).run();
     scores.push(...sim.finalScores);
   }

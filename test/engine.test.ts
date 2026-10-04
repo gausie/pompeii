@@ -1,47 +1,16 @@
 import { describe, expect, it } from "vitest";
 
-import { Stats } from "../src/constants";
+import { MENU_CHOICE, WELL_COST } from "../src/constants";
 import { Engine, Options } from "../src/engine";
 import { Observation } from "../src/observation";
 
 import { Simulator, SimulatorSettings } from "./simulator";
 
-const options: Options = { rewards: { barb: 2 }, games: 5, samples: 4, lockIn: true, toBeat: 0 };
-
-// Notes what the engine believes about its stats after every request, to
-// check against the simulator's audit once the day is over
-class Watched extends Simulator {
-  engine: Engine | null = null;
-  beliefs = new Map<number, { lo: Stats; hi: Stats }>();
-  requests = 0;
-
-  choose(choice: number, option: number): Observation {
-    const result = super.choose(choice, option);
-    if (this.engine?.progress && result.needles.size > 0) {
-      const { tracker } = this.engine;
-      tracker.observe(result.needles);
-      this.beliefs.set(this.requests, { lo: [...tracker.lo], hi: [...tracker.hi] } as {
-        lo: Stats;
-        hi: Stats;
-      });
-    }
-    this.requests += 1;
-    return result;
-  }
-
-  misses(): number {
-    const audit = this.audit();
-    return [...this.beliefs].filter(([i, belief]) => {
-      const truth = audit[i].strength as Stats;
-      return !truth.every((v, j) => belief.lo[j] <= v && v < belief.hi[j]);
-    }).length;
-  }
-}
+const options: Options = { rewards: { barb: 2 }, games: 5, samples: 4, lockIn: true };
 
 function play(settings: Partial<SimulatorSettings> = {}, overrides: Partial<Options> = {}) {
-  const simulator = new Watched(settings);
+  const simulator = new Simulator(settings);
   const engine = new Engine(simulator, { ...options, ...overrides });
-  simulator.engine = engine;
   engine.run();
   return { simulator, engine };
 }
@@ -72,28 +41,6 @@ describe("engine against the simulator", () => {
     }
   });
 
-  it("never locks in a score that doesn't beat one locked in earlier today", () => {
-    const { simulator } = play({}, { toBeat: 5000 });
-    expect(simulator.finalScores).toHaveLength(5);
-    expect(simulator.lockedScore).toBeNull();
-  });
-
-  it("locks in the first score worth it that beats one locked in earlier today", () => {
-    let locked = 0;
-    for (let seed = 1; seed <= 10; seed++) {
-      const { simulator } = play({ seed }, { toBeat: 1700 });
-      if (simulator.lockedScore === null) {
-        expect(simulator.finalScores).toHaveLength(5);
-        expect(simulator.finalScores[4]).toBeLessThanOrEqual(1700);
-      } else {
-        locked++;
-        expect(simulator.lockedScore).toBeGreaterThan(1700);
-        expect(simulator.finalScores[simulator.finalScores.length - 1]).toBe(simulator.lockedScore);
-      }
-    }
-    expect(locked).toBeGreaterThan(0);
-  });
-
   it("stops after the requested number of games without reopening the rig", () => {
     const simulator = new Simulator();
     let opens = 0;
@@ -108,23 +55,30 @@ describe("engine against the simulator", () => {
     expect(simulator.inGame).toBe(false);
   });
 
-  it("gambles on the wishing well when a later game could still be locked in", () => {
-    let offered = 0;
-    for (let seed = 1; seed <= 10; seed++) {
-      const { simulator } = play({ seed, boosts: [3, 3, 3] });
-      let gamesAfter = false;
-      let cheese = 0;
-      simulator.messages.forEach((message, i) => {
-        if (message.startsWith("Configuration")) gamesAfter = false;
-        if (message.includes("so locking in at")) gamesAfter = true;
-        const turn = message.match(/^Turn \d+ vs \S+ \((\d+) cheese\)/);
-        if (turn) cheese = Number(turn[1]);
-        if (!gamesAfter || cheese < 10 || !message.includes("Use the wishing well ")) return;
-        offered++;
-        expect(simulator.messages[i + 1]).toBe("  -> Use the wishing well");
-      });
+  it("takes the wishing well whenever it can afford to", () => {
+    // Notes every cheese menu the engine is shown and what it picks there
+    class Recorder extends Simulator {
+      shown: Observation | null = null;
+      picks: { cheese: number; well: boolean; picked: boolean }[] = [];
+      choose(choice: number, option: number): Observation {
+        const well = this.shown?.buttons.find((b) => b.name === "Use the wishing well");
+        if (choice === MENU_CHOICE.cheese && this.shown?.game) {
+          const picked = well?.option === option;
+          this.picks.push({ cheese: this.shown.game.cheese, well: !!well, picked });
+        }
+        this.shown = super.choose(choice, option);
+        return this.shown;
+      }
     }
-    expect(offered).toBeGreaterThan(0);
+    const picks = [];
+    for (let seed = 1; seed <= 10; seed++) {
+      const simulator = new Recorder({ seed, boosts: [3, 3, 3] });
+      new Engine(simulator, options).run();
+      picks.push(...simulator.picks);
+    }
+    const affordable = picks.filter((p) => p.well && p.cheese >= WELL_COST);
+    expect(affordable.length).toBeGreaterThan(0);
+    expect(affordable.every((p) => p.picked)).toBe(true);
   });
 
   it("collects the rewards it was asked for", () => {
@@ -138,22 +92,15 @@ describe("engine against the simulator", () => {
     expect(simulator.finalScores).toContain(simulator.lockedScore);
   });
 
-  it("keeps the true stats inside its tracked intervals", () => {
-    // Play all five games rather than stopping at a lock-in
-    const { simulator } = play({}, { lockIn: false });
-    expect(simulator.beliefs.size).toBeGreaterThan(20);
-    expect(simulator.misses()).toBe(0);
-  });
-
-  it("can't peek at the truth mid-game", () => {
+  it("picks up a game in progress", () => {
     const simulator = new Simulator();
     simulator.open();
-    expect(() => simulator.audit()).toThrow();
-    expect(Object.keys(simulator)).not.toContain("match");
-  });
-
-  it("never has to fall back on the needles", () => {
-    const { simulator } = play();
-    expect(simulator.messages.some((m) => m.includes("Needles disagreed"))).toBe(false);
+    simulator.choose(1313, 5);
+    simulator.choose(1314, 3);
+    const menu = simulator.choose(1319, 1);
+    new Engine(simulator, { ...options, games: 1 }).run();
+    expect(menu.game?.pools.cheese).toHaveLength(15);
+    expect(simulator.finalScores).toHaveLength(1);
+    expect(simulator.inGame).toBe(false);
   });
 });

@@ -34,16 +34,7 @@ export function add(a: Stats, b: Stats, scale = 1): Stats {
 }
 
 function stats(named: Partial<Record<string, number>>): Stats {
-  for (const name of Object.keys(named)) {
-    if (!STAT_NAMES.includes(name as StatName)) throw new Error(`Unknown stat ${name}`);
-  }
   return STAT_NAMES.map((name) => named[name] ?? 0) as Stats;
-}
-
-function statIndex(name: string): number {
-  const index = STAT_NAMES.indexOf(name as StatName);
-  if (index < 0) throw new Error(`Unknown stat ${name}`);
-  return index;
 }
 
 // *** Rules
@@ -51,8 +42,7 @@ function statIndex(name: string): number {
 // Everyone's stats with no style bonuses
 export const BASELINE = stats({ MA: 100, MD: 90, CA: 110, CD: 100, PA: 110, PD: 110 });
 
-// Each game draws a bracket of castles, halved after every battle; survivors
-// grow by this percentage range in each stat
+// Each game draws a bracket of castles, halved after every battle
 export const BRACKET_SIZE = 31;
 export const GROWTH = { min: 105, max: 125 };
 
@@ -176,9 +166,14 @@ type RawOption = {
 function prepOption(raw: RawOption): PrepOption {
   if (raw.bonus) return { kind: "stats", delta: stats(raw.bonus), cheese: raw.cheese ?? 0 };
   if (raw.fixed !== undefined) return { kind: "fixed", cheese: raw.fixed };
-  if (raw.scaled) return { kind: "scaled", stat: statIndex(raw.scaled), inverse: !!raw.inverse };
-  if (raw.well) return { kind: "well" };
-  throw new Error(`Unrecognised option ${JSON.stringify(raw)}`);
+  if (raw.scaled) {
+    return {
+      kind: "scaled",
+      stat: STAT_NAMES.indexOf(raw.scaled as StatName),
+      inverse: !!raw.inverse,
+    };
+  }
+  return { kind: "well" };
 }
 
 // Options are numbered from 1 in the order they're listed in options.json
@@ -204,8 +199,8 @@ export const POOL_SIZE: Record<Menu, number> = {
 };
 
 // Button text for each option. Two buttons per stat menu are described the
-// same in game ("all attack up, all defense down"); which is the milder one
-// was worked out from the needles.
+// same in game ("all attack up, all defense down"), so the text is what tells
+// them apart.
 export const BUTTONS: Record<Menu, Record<string, number>> = BUTTON_DATA;
 
 // *** Timeline: preps on turns 1,2,4,5,...; battles on turns 3,6,9,12,15
@@ -214,14 +209,15 @@ export function isBattleTurn(turn: number): boolean {
   return turn % 3 === 0;
 }
 
+// The wishing well only pays out if you have this much cheese to throw in
+export const WELL_COST = 10;
+
 // Razing a castle yields a 10-20 cheese roll for every turn elapsed, summed
 export function battleCheese(turn: number): number {
   return 15 * turn;
 }
 
-// *** Enemy castles. Every castle of a type starts with the same stats. Each
-// game draws a bracket of them; it's halved after every battle and the
-// survivors grow in each stat independently.
+// *** Enemy castles
 
 export type CastleKey = string;
 export type Castle = { key: CastleKey; stats: Stats };

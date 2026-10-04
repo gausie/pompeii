@@ -22,10 +22,10 @@ import {
   Stats,
   UPGRADE_OPTION,
   UPGRADES,
+  WELL_COST,
 } from "../src/constants";
 import { BattleResult, Button, Client, Observation } from "../src/observation";
 import { fullPools, mulberry32, Rng, sample } from "../src/strategy";
-import { needleReading } from "../src/tracker";
 
 // An offline stand-in for the game so the engine can be exercised end to end.
 
@@ -58,13 +58,9 @@ const PHASE_CHOICE: Record<Phase, number> = {
 
 type Rival = { castle: CastleKey; strength: Stats };
 
-export type AuditEntry = { choice: number; option: number; strength: Stats | null };
-
 type Match = {
   strength: Stats;
   hoard: number;
-  // What KoLmafia has seen announced; defensive cheese isn't
-  announced: number;
   clock: number;
   // Who we'll face in each battle. The bracket plays out the same whatever we
   // do, so it's decided up front.
@@ -85,7 +81,6 @@ export class Simulator implements Client {
   #lastBattle: BattleResult | null = null;
   #rewardsClaimed = false;
   readonly #scores: number[] = [];
-  readonly #transcript: AuditEntry[] = [];
   readonly messages: string[] = [];
 
   constructor(settings: Partial<SimulatorSettings> = {}) {
@@ -145,13 +140,6 @@ export class Simulator implements Client {
     return this.#phase !== null;
   }
 
-  // The truth behind every request, for tests to check against. Only
-  // available once we've left the game, so it can't inform play.
-  audit(): AuditEntry[] {
-    if (this.#phase !== null) throw new Error("No peeking while the game is on");
-    return this.#transcript.map((e) => ({ ...e, strength: e.strength && [...e.strength] }));
-  }
-
   log(message: string): void {
     this.messages.push(message);
   }
@@ -179,11 +167,6 @@ export class Simulator implements Client {
         this.#wrapUp(option);
         break;
     }
-    this.#transcript.push({
-      choice,
-      option,
-      strength: this.#match ? ([...this.#match.strength] as Stats) : null,
-    });
     return this.#view();
   }
 
@@ -220,7 +203,6 @@ export class Simulator implements Client {
     return {
       strength: startingStats(this.#styles),
       hoard: 0,
-      announced: 0,
       clock: 1,
       foes,
       untaken: fullPools(),
@@ -267,13 +249,10 @@ export class Simulator implements Client {
       if (effect.cheese > 0) {
         const amount = this.#between(10, 20);
         match.hoard += amount;
-        // Defensive cheese turns up without being announced
-        if (menu === "offense") match.announced += amount;
       }
     } else {
       const amount = this.#cheeseFrom(effect, match);
       match.hoard += amount;
-      match.announced += amount;
     }
 
     match.clock += 1;
@@ -289,7 +268,7 @@ export class Simulator implements Client {
         return this.#fuzz(Math.max(10, effect.inverse ? 200 - stat : stat));
       }
       case "well":
-        return match.hoard >= 10 && this.#random() < 1 / 3 ? this.#fuzz(300) : 0;
+        return match.hoard >= WELL_COST && this.#random() < 1 / 3 ? this.#fuzz(300) : 0;
     }
   }
 
@@ -314,12 +293,9 @@ export class Simulator implements Client {
       let amount = 0;
       for (let turn = 0; turn < match.clock; turn++) amount += this.#between(10, 20);
       match.hoard += amount;
-      match.announced += amount;
     }
 
     if (!won || match.clock >= LAST_TURN) {
-      // The final score is shown, so KoLmafia catches up
-      match.announced = match.hoard;
       this.#phase = "results";
       this.#plays -= 1;
       this.#scores.push(match.hoard);
@@ -350,13 +326,6 @@ export class Simulator implements Client {
 
   // *** What the screen shows
 
-  #needles(): Map<number, number> {
-    const match = this.#match as Match;
-    return new Map(
-      match.strength.map((v, stat) => [stat, needleReading(stat, v)] as [number, number]),
-    );
-  }
-
   #view(): Observation {
     const choice = this.#phase === null ? null : PHASE_CHOICE[this.#phase];
     const match = this.#match;
@@ -365,10 +334,7 @@ export class Simulator implements Client {
         choice,
         buttons: [],
         config: {},
-        needles: new Map(),
-        turn: 0,
-        cheese: 0,
-        enemy: null,
+        game: null,
         lastBattle: null,
       };
     }
@@ -376,10 +342,18 @@ export class Simulator implements Client {
       choice,
       buttons: this.#buttons(this.#phase, match),
       config: { ...this.#styles },
-      needles: this.#needles(),
-      turn: match.clock,
-      cheese: match.announced,
-      enemy: this.#foe(match).castle,
+      // KoLmafia tracks all of this exactly
+      game: {
+        turn: match.clock,
+        stats: [...match.strength] as Stats,
+        cheese: match.hoard,
+        pools: {
+          offense: [...match.untaken.offense],
+          defense: [...match.untaken.defense],
+          cheese: [...match.untaken.cheese],
+        },
+        enemy: this.#foe(match).castle,
+      },
       lastBattle: this.#lastBattle,
     };
   }

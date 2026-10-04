@@ -18,6 +18,7 @@ import {
   STANCES,
   startingStats,
   Stats,
+  WELL_COST,
 } from "./constants";
 import { enemyChance } from "./enemy";
 
@@ -141,7 +142,7 @@ export function optionCheese(option: PrepOption, stats: Stats, cheese: number): 
     }
     case "well":
       // 1 in 3 chance of 300, but only if we can afford the coin
-      return cheese >= 10 ? 100 : 0;
+      return cheese >= WELL_COST ? 100 : 0;
   }
 }
 
@@ -210,7 +211,7 @@ export function sampleCastles(state: GameState, rng: Rng): CastleKey[] {
 
 // Plays out the rest of the game greedily: always look for cheese, take the
 // biggest haul, fight with the best stance. Decisions are made by comparing
-// rollouts after each alternative, so they can only improve on this. Rather
+// rollouts after each alternative. Rather
 // than sampling battle outcomes we weight everything after a battle by the
 // chance of surviving it, which gives the same expectation with less noise.
 export function rollout(ctx: Context, start: GameState, rng: Rng, castles: CastleKey[]): number {

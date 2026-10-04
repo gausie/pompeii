@@ -1,10 +1,5 @@
-import { CastleKey, Configuration } from "./constants";
-
-// What the engine can see after each request: the choice we're in, its
-// buttons, and KoLmafia's running record of the castle and the game. That
-// record carries over between games, so the game fields describe the game in
-// progress or, outside one, the last one. The KoLmafia client reads it from
-// KoLmafia's preferences; the simulator mirrors it from its own state.
+import { Configuration } from "./constants";
+import { GameState } from "./strategy";
 
 export type Button = { option: number; name: string };
 
@@ -20,13 +15,9 @@ export type Observation = {
   choice: number | null;
   buttons: Button[];
   config: Partial<Configuration>;
-  // Needle readings by stat index, in KoLmafia's units (see tracker.ts)
-  needles: Map<number, number>;
-  turn: number;
-  // Cheese announced so far. Some cheese turns up unannounced, so this can
-  // run behind until the game is over and the final score is shown.
-  cheese: number;
-  enemy: CastleKey | null;
+  // The game in progress, or outside one the last one; null if we don't know
+  // our stats
+  game: GameState | null;
   lastBattle: BattleResult | null;
 };
 
