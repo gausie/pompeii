@@ -37,17 +37,13 @@ function mainstat(): "muscle" | "myst" | "moxie" {
 
 const isMe = (score: Score) => score.playerId === Number(myId());
 
-// Where we placed on today's leaderboard
+// Today's leaderboard, which only shows the top 15, with us under it if we
+// didn't make it
 function showHiScores(client: GameClient): void {
   const scores = client.hiScores();
   if (!scores) return print("Couldn't get to the Bastille Battalion hi scores.", "red");
   const rank = scores.findIndex(isMe);
-  print(
-    rank < 0
-      ? `Not on today's leaderboard (${scores.length} players).`
-      : `Placed #${rank + 1} of ${scores.length} today.`,
-    "blue",
-  );
+  print(`Today's top ${scores.length}:`, "blue");
   scores.forEach((score, i) => {
     print(`${i + 1}. ${score.name} ${score.cheese}`, i === rank ? "green" : undefined);
   });
