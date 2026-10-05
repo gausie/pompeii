@@ -2577,10 +2577,7 @@ function readObservation(_ref) {
     lastBattle: readBattle(prefs)
   };
 }
-// Today's leaderboard, from the Hi Scores button in the lobby. KoLmafia
-// doesn't read this one.
-function parseHiScores(html) {
-  if (!html.includes("Cheesemasters:")) return null;
+function parseScores(html) {
   // String.prototype.matchAll isn't reliably available in KoLmafia's Rhino
   var re = /showplayer\.php\?who=(\d+)>([^<]+)<\/a>.*?<td>([\d,]+) curds/g;
   var scores = [];
@@ -2598,6 +2595,21 @@ function parseHiScores(html) {
     });
   }
   return scores;
+}
+
+// The leaderboards from the Hi Scores button in the lobby. KoLmafia doesn't
+// read these. Yesterday's final standings sit below today's, when there are any.
+function parseHiScores(html) {
+  if (!html.includes("Cheesemasters:")) return null;
+  var _html$split = html.split("Yesterday's final standings:"),
+    _html$split2 = _slicedToArray(_html$split, 2),
+    today = _html$split2[0],
+    _html$split2$ = _html$split2[1],
+    yesterday = _html$split2$ === void 0 ? "" : _html$split2$;
+  return {
+    today: parseScores(today),
+    yesterday: parseScores(yesterday)
+  };
 }
 function readPrefs() {
   return {
@@ -2666,7 +2678,7 @@ var GameClient = /*#__PURE__*/function () {
       return kolmafia.visitUrl("choice.php?whichchoice=".concat(choice, "&option=").concat(option, "&pwd=").concat(kolmafia.myHash()));
     }
 
-    // Today's leaderboard, or null if we can't get to it. Never spends a loaner
+    // The leaderboards, or null if we can't get to them. Never spends a loaner
     // voucher just to look.
   }, {
     key: "hiScores",
@@ -2801,25 +2813,39 @@ function mainstat() {
   return "moxie";
 }
 var isMe = score => score.playerId === Number(kolmafia.myId());
+function printScores(scores) {
+  var rank = scores.findIndex(isMe);
+  scores.forEach((score, i) => {
+    kolmafia.print("".concat(i + 1, ". ").concat(score.name, " ").concat(score.cheese), i === rank ? "green" : undefined);
+  });
+  return rank;
+}
 
 // Today's leaderboard, which only shows the top 15, with us under it if we
 // didn't make it
 function showHiScores(client) {
   var scores = client.hiScores();
   if (!scores) return kolmafia.print("Couldn't get to the Bastille Battalion hi scores.", "red");
-  var rank = scores.findIndex(isMe);
-  kolmafia.print("Today's top ".concat(scores.length, ":"), "blue");
-  scores.forEach((score, i) => {
-    kolmafia.print("".concat(i + 1, ". ").concat(score.name, " ").concat(score.cheese), i === rank ? "green" : undefined);
-  });
-  if (rank < 0) {
+  kolmafia.print("Today's top ".concat(scores.today.length, ":"), "blue");
+  if (printScores(scores.today) < 0) {
     var locked = client.lockedInScore();
     kolmafia.print(locked ? "?. ".concat(kolmafia.myName(), " ").concat(locked) : "No score locked in today.", "green");
   }
 }
+
+// Yesterday's final standings. Our locked-in score has been reset by now, so
+// there's nothing to show if we didn't place.
+function showYesterday(client) {
+  var scores = client.hiScores();
+  if (!scores) return kolmafia.print("Couldn't get to the Bastille Battalion hi scores.", "red");
+  if (scores.yesterday.length === 0) return kolmafia.print("No final standings for yesterday.", "red");
+  kolmafia.print("Yesterday's top ".concat(scores.yesterday.length, ":"), "blue");
+  if (printScores(scores.yesterday) < 0) kolmafia.print("You didn't place yesterday.", "green");
+}
 function help() {
   kolmafia.print("pompeii [rewards...] [games=N] [samples=N] [nopotions] [nolock]");
   kolmafia.print("pompeii scores  (just show today's leaderboard)");
+  kolmafia.print("pompeii yesterday  (just show yesterday's final standings)");
   kolmafia.print("Plays Bastille Battalion to maximise cheese.");
   kolmafia.print("");
   kolmafia.print("Rewards for the first game of the day; anything not given is chosen for score:");
@@ -2837,6 +2863,7 @@ function main() {
   var words = args.toLowerCase().split(/\s+/).filter(Boolean);
   if (words.includes("help")) return help();
   if (words.includes("scores")) return showHiScores(new GameClient());
+  if (words.includes("yesterday")) return showYesterday(new GameClient());
   var options = {
     rewards: {},
     games: 5,
