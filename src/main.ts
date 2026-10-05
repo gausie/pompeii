@@ -1,5 +1,5 @@
 import { myId, myName, myPrimestat, print } from "kolmafia";
-import { $stat, get } from "libram";
+import { $stat, get, sinceKolmafiaRevision } from "libram";
 
 import { Configuration } from "./constants";
 import { Engine, Options } from "./engine";
@@ -70,6 +70,8 @@ function help(): void {
 }
 
 export function main(args = ""): void {
+  // Bastille Battalion tracking
+  sinceKolmafiaRevision(29336);
   const words = args.toLowerCase().split(/\s+/).filter(Boolean);
   if (words.includes("help")) return help();
   if (words.includes("scores")) return showHiScores(new GameClient());

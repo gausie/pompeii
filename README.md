@@ -18,7 +18,7 @@ today's leaderboard.
 - It reads the game from what KoLmafia tracks (the `_bastille*` preferences and the choice
   options), so the only page it parses itself is the leaderboard. That includes your exact
   stats: everyone starts from the same baseline, and every style and prep option changes them by
-  a known amount. This needs a KoLmafia with that tracking.
+  a known amount. This needs KoLmafia r29336 or later.
 - Every castle of a type starts with the same stats, and survivors grow 5-25% per stat each round
   of the bracket, so the odds of each battle comparison are computed exactly.
 - Stances are chosen to maximise the chance of winning the battle. Configurations, menus and
