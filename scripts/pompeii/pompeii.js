@@ -793,7 +793,7 @@ var $item = createSingleConstant(kolmafia.Item, kolmafia.toItem);
  *
  * @category In-game constant
  */
-var $items = createPluralConstant(kolmafia.Item);
+createPluralConstant(kolmafia.Item);
 /**
  * A Location specified by name.
  *
@@ -1175,7 +1175,6 @@ var BUTTON_DATA = {
 var CASTLE_DATA = [
 	{
 		key: "frenchcastle",
-		description: "an avant-garde art castle",
 		stats: {
 			MA: 80,
 			MD: 80,
@@ -1187,7 +1186,6 @@ var CASTLE_DATA = [
 	},
 	{
 		key: "masterofnone",
-		description: "a boring, run-of-the-mill castle",
 		stats: {
 			MA: 110,
 			MD: 100,
@@ -1199,7 +1197,6 @@ var CASTLE_DATA = [
 	},
 	{
 		key: "bigcastle",
-		description: "a sprawling chateau",
 		stats: {
 			MA: 100,
 			MD: 100,
@@ -1211,7 +1208,6 @@ var CASTLE_DATA = [
 	},
 	{
 		key: "berserker",
-		description: "a dark and menacing citadel",
 		stats: {
 			MA: 130,
 			MD: 70,
@@ -1223,7 +1219,6 @@ var CASTLE_DATA = [
 	},
 	{
 		key: "shieldmaster",
-		description: "a fortress that puts the 'fort' in 'fortified'",
 		stats: {
 			MA: 90,
 			MD: 110,
@@ -1235,7 +1230,6 @@ var CASTLE_DATA = [
 	},
 	{
 		key: "barracks",
-		description: "an imposing military fortress",
 		stats: {
 			MA: 120,
 			MD: 120,
@@ -1527,16 +1521,7 @@ function add(a, b) {
   return a.map((v, i) => v + b[i] * scale);
 }
 function stats(named) {
-  for (var _i = 0, _Object$keys = Object.keys(named); _i < _Object$keys.length; _i++) {
-    var name = _Object$keys[_i];
-    if (!STAT_NAMES.includes(name)) throw new Error("Unknown stat ".concat(name));
-  }
   return STAT_NAMES.map(name => named[name] ?? 0);
-}
-function statIndex(name) {
-  var index = STAT_NAMES.indexOf(name);
-  if (index < 0) throw new Error("Unknown stat ".concat(name));
-  return index;
 }
 
 // *** Rules
@@ -1633,6 +1618,15 @@ var STYLE_DELTAS = {
     MA: 10
   }), zero()]
 };
+var PLAYS_PER_DAY = 5;
+
+// KoLmafia's names for each style, as in _bastilleCurrentStyles
+var STYLE_KEYS = {
+  barb: ["BARBECUE", "BABAR", "BARBERSHOP"],
+  bridge: ["BRUTALIST", "DRAFTSMAN", "NOUVEAU"],
+  holes: ["CANNON", "CATAPULT", "GESTURE"],
+  moat: ["SHARKS", "LAVA", "TRUTH"]
+};
 
 // Named for the first game's rewards they give
 var STYLE_NAMES = {
@@ -1649,6 +1643,10 @@ var UPGRADE_OPTION = {
   holes: 3,
   moat: 4
 };
+// The lobby only offers to start a game while we have plays left
+var START_OPTION = 5;
+// Game over only offers this while we haven't locked in a score
+var LOCK_IN = "Lock in your score";
 function configurationDelta(config) {
   return UPGRADES.reduce((acc, u) => add(acc, STYLE_DELTAS[u][config[u] - 1]), zero());
 }
@@ -1697,15 +1695,16 @@ function prepOption(raw) {
     kind: "fixed",
     cheese: raw.fixed
   };
-  if (raw.scaled) return {
-    kind: "scaled",
-    stat: statIndex(raw.scaled),
-    inverse: !!raw.inverse
-  };
-  if (raw.well) return {
+  if (raw.scaled) {
+    return {
+      kind: "scaled",
+      stat: STAT_NAMES.indexOf(raw.scaled),
+      inverse: !!raw.inverse
+    };
+  }
+  return {
     kind: "well"
   };
-  throw new Error("Unrecognised option ".concat(JSON.stringify(raw)));
 }
 
 // Options are numbered from 1 in the order they're listed in options.json
@@ -1728,9 +1727,9 @@ var POOL_SIZE = {
   cheese: OPTIONS.cheese.length
 };
 
-// Button text for each option. Two buttons per stat menu share a description
-// ("all attack up, all defense down"); which is the milder one was worked out
-// from the needles.
+// Button text for each option. Two buttons per stat menu are described the
+// same in game ("all attack up, all defense down"), so the text is what tells
+// them apart.
 var BUTTONS = BUTTON_DATA;
 
 // *** Timeline: preps on turns 1,2,4,5,...; battles on turns 3,6,9,12,15
@@ -1739,242 +1738,20 @@ function isBattleTurn(turn) {
   return turn % 3 === 0;
 }
 
+// The wishing well only pays out if you have this much cheese to throw in
+var WELL_COST = 10;
+
 // Razing a castle yields a 10-20 cheese roll for every turn elapsed, summed
 function battleCheese(turn) {
   return 15 * turn;
 }
 
-// *** Enemy castles. Every castle of a type starts with the same stats. Each
-// game draws a bracket of them; it's halved after every battle and the
-// survivors grow in each stat independently.
+// *** Enemy castles
 
 var CASTLES = CASTLE_DATA.map(c => ({
   key: c.key,
-  description: c.description,
   stats: stats(c.stats)
 }));
-
-// String.prototype.matchAll isn't reliably available in KoLmafia's Rhino
-function allMatches(text, pattern) {
-  var re = new RegExp(pattern.source, pattern.flags.includes("g") ? pattern.flags : "".concat(pattern.flags, "g"));
-  var result = [];
-  var match;
-  while ((match = re.exec(text)) !== null) result.push(match);
-  return result;
-}
-var NEEDLE_ROWS = {
-  "233": [MA, MD],
-  "252": [CA, CD],
-  "270": [PA, PD]
-};
-function parseNeedles(html) {
-  var needles = new Map();
-  var _iterator = _createForOfIteratorHelper(allMatches(html, /top: (\d+);? left: (\d+);?'[^>]*otherimages\/bbatt\/needle\.png/g)),
-    _step;
-  try {
-    for (_iterator.s(); !(_step = _iterator.n()).done;) {
-      var _step$value = _slicedToArray(_step.value, 3),
-        top = _step$value[1],
-        left = _step$value[2];
-      var row = NEEDLE_ROWS[top];
-      if (!row) continue;
-      var value = Number(left);
-      needles.set(value < 200 ? row[0] : row[1], value);
-    }
-  } catch (err) {
-    _iterator.e(err);
-  } finally {
-    _iterator.f();
-  }
-  return needles;
-}
-function parseConfiguration(html) {
-  var config = {};
-  var _iterator2 = _createForOfIteratorHelper(allMatches(html, /otherimages\/bbatt\/(barb|bridge|holes|moat)(\d)\.png/g)),
-    _step2;
-  try {
-    for (_iterator2.s(); !(_step2 = _iterator2.n()).done;) {
-      var _step2$value = _slicedToArray(_step2.value, 3),
-        upgrade = _step2$value[1],
-        value = _step2$value[2];
-      config[upgrade] = Number(value);
-    }
-  } catch (err) {
-    _iterator2.e(err);
-  } finally {
-    _iterator2.f();
-  }
-  return config;
-}
-function parseEnemy(html) {
-  var _CASTLES$find;
-  var scanned = html.match(/the nearest enemy castle is .*?, (an? .*?)\./);
-  if (scanned) {
-    var castle = CASTLES.find(c => c.description === scanned[1]);
-    if (castle) return castle.key;
-  }
-  // The battle screen shows the looming castle instead
-  var looming = html.match(/otherimages\/bbatt\/([a-z]+)_3\.png/);
-  return ((_CASTLES$find = CASTLES.find(c => c.key === (looming === null || looming === void 0 ? void 0 : looming[1]))) === null || _CASTLES$find === void 0 ? void 0 : _CASTLES$find.key) ?? null;
-}
-function parseButtons(html) {
-  var buttons = [];
-  var _iterator3 = _createForOfIteratorHelper(html.split(/<form/i).slice(1)),
-    _step3;
-  try {
-    for (_iterator3.s(); !(_step3 = _iterator3.n()).done;) {
-      var _form$match;
-      var form = _step3.value;
-      var option = form.match(/name=option value=['"]?(\d+)/);
-      var name = form.match(/type=submit value="([^"]*)"/);
-      if (!option || !name) continue;
-      var description = ((_form$match = form.match(/<Font color=blue><b>\[([^\]]*)\]/i)) === null || _form$match === void 0 ? void 0 : _form$match[1]) ?? "";
-      buttons.push({
-        option: Number(option[1]),
-        name: name[1],
-        description
-      });
-    }
-  } catch (err) {
-    _iterator3.e(err);
-  } finally {
-    _iterator3.f();
-  }
-  return buttons;
-}
-var BATTLE_LINE = /(Military|Castle|Psychological) results:\s*Your (attack strength|defense) is (higher|lower)/g;
-function parseBattle(html) {
-  var results = [false, false, false];
-  var attacking = null;
-  var _iterator4 = _createForOfIteratorHelper(allMatches(html, BATTLE_LINE)),
-    _step4;
-  try {
-    for (_iterator4.s(); !(_step4 = _iterator4.n()).done;) {
-      var _step4$value = _slicedToArray(_step4.value, 4),
-        category = _step4$value[1],
-        side = _step4$value[2],
-        outcome = _step4$value[3];
-      attacking = side === "attack strength";
-      results[["Military", "Castle", "Psychological"].indexOf(category)] = outcome === "higher";
-    }
-  } catch (err) {
-    _iterator4.e(err);
-  } finally {
-    _iterator4.f();
-  }
-  if (attacking === null) return null;
-  return {
-    attacking,
-    results,
-    won: html.includes("You have razed your foe")
-  };
-}
-function parseGameOver(html) {
-  var _html$match;
-  var score = html.match(/collected ([\d,]+) cheese/);
-  if (!html.includes("GAME OVER") || !score) return null;
-  return {
-    cheese: Number(score[1].replace(/,/g, "")),
-    playsLeft: Number(((_html$match = html.match(/You can play <b>(\d+)<\/b> more time/)) === null || _html$match === void 0 ? void 0 : _html$match[1]) ?? 0),
-    canLockIn: html.includes("Lock in your score")
-  };
-}
-function parseObservation(html) {
-  var choice = html.match(/name=whichchoice value=['"]?(\d+)/);
-  var turn = html.match(/\(turn #(\d+)\)/);
-  return {
-    choice: choice ? Number(choice[1]) : null,
-    turn: turn ? Number(turn[1]) : null,
-    needles: parseNeedles(html),
-    config: parseConfiguration(html),
-    enemy: parseEnemy(html),
-    canStart: html.includes("otherimages/bbatt/start.png"),
-    buttons: parseButtons(html),
-    cheeseGained: allMatches(html, /You gain (\d+) cheese/g).reduce((sum, _ref) => {
-      var _ref2 = _slicedToArray(_ref, 2),
-        n = _ref2[1];
-      return sum + Number(n);
-    }, 0),
-    battle: parseBattle(html),
-    gameOver: parseGameOver(html)
-  };
-}
-
-// Parses the blue hint shown under each stat button, e.g.
-// "Increase Castle attack, decrease Psychological defense, get cheese"
-// into the stats it raises and lowers.
-function parseDescription(description) {
-  var up = new Set();
-  var down = new Set();
-  var cheese = false;
-  var sign = 1;
-  var _iterator5 = _createForOfIteratorHelper(description.toLowerCase().split(",")),
-    _step5;
-  try {
-    var _loop = function _loop() {
-      var clause = _step5.value;
-      if (clause.includes("cheese")) cheese = true;
-      if (/increase/.test(clause)) sign = 1;
-      if (/decrease|reduce/.test(clause)) sign = -1;
-      var kinds = [/attack/.test(clause) ? 0 : null, /defen[sc]e/.test(clause) ? 1 : null].filter(k => k !== null);
-      var categories = /\ball\b/.test(clause) ? [0, 1, 2] : [/military/, /castle/, /psychological/].map((re, i) => re.test(clause) ? i : null).filter(c => c !== null);
-      var _iterator6 = _createForOfIteratorHelper(categories),
-        _step6;
-      try {
-        for (_iterator6.s(); !(_step6 = _iterator6.n()).done;) {
-          var category = _step6.value;
-          var _iterator7 = _createForOfIteratorHelper(kinds),
-            _step7;
-          try {
-            for (_iterator7.s(); !(_step7 = _iterator7.n()).done;) {
-              var kind = _step7.value;
-              (sign > 0 ? up : down).add(category * 2 + kind);
-            }
-          } catch (err) {
-            _iterator7.e(err);
-          } finally {
-            _iterator7.f();
-          }
-        }
-      } catch (err) {
-        _iterator6.e(err);
-      } finally {
-        _iterator6.f();
-      }
-    };
-    for (_iterator5.s(); !(_step5 = _iterator5.n()).done;) {
-      _loop();
-    }
-  } catch (err) {
-    _iterator5.e(err);
-  } finally {
-    _iterator5.f();
-  }
-  return {
-    up,
-    down,
-    cheese
-  };
-}
-
-// Works out which option a button is. The name tells us for every button we
-// know of; if KoL adds one we don't, we match its blue hint text against the
-// options still to come.
-function identify(menu, button, pool) {
-  var named = BUTTONS[menu][button.name];
-  if (named) return named;
-  if (menu === "cheese" || !button.description) return null;
-  var _parseDescription = parseDescription(button.description),
-    up = _parseDescription.up,
-    down = _parseDescription.down,
-    cheese = _parseDescription.cheese;
-  var match = pool.find(id => {
-    var option = MENU_OPTIONS[menu][id];
-    if (option.kind !== "stats" || cheese !== option.cheese > 0) return false;
-    return option.delta.every((d, stat) => d > 0 ? up.has(stat) : d < 0 ? down.has(stat) : !up.has(stat) && !down.has(stat));
-  });
-  return match ?? null;
-}
 
 // The castle you face in battle k has had k-1 rounds of growth, each stat
 // separately multiplied by a random 105-125% and rounded down. Starting stats
@@ -2166,7 +1943,7 @@ function optionCheese(option, stats, cheese) {
       }
     case "well":
       // 1 in 3 chance of 300, but only if we can afford the coin
-      return cheese >= 10 ? 100 : 0;
+      return cheese >= WELL_COST ? 100 : 0;
   }
 }
 function applyOption(state, menu, id) {
@@ -2231,7 +2008,7 @@ function sampleCastles(state, rng) {
 
 // Plays out the rest of the game greedily: always look for cheese, take the
 // biggest haul, fight with the best stance. Decisions are made by comparing
-// rollouts after each alternative, so they can only improve on this. Rather
+// rollouts after each alternative. Rather
 // than sampling battle outcomes we weight everything after a battle by the
 // chance of surviving it, which gives the same expectation with less noise.
 function rollout(ctx, start, rng, castles) {
@@ -2346,131 +2123,12 @@ function evaluateConfigurations(ctx, allowed, samples) {
   }).sort((a, b) => b.value - a.value);
 }
 
-// Each needle moves one pixel per 7.5 points of its stat. Fitted against
-// thousands of readings in KoLmafia session logs with known stats: attack
-// needles sit at 124 + floor((stat - 95) / 7.5), defense at
-// 240 + floor((stat - 87.5) / 7.5).
-var NEEDLE_SCALE = 7.5;
-var NEEDLE_ORIGIN = {
-  attack: {
-    pixel: 124,
-    stat: 95
-  },
-  defense: {
-    pixel: 240,
-    stat: 87.5
-  }
-};
-function needleInterval(stat, left) {
-  var origin = stat % 2 === 0 ? NEEDLE_ORIGIN.attack : NEEDLE_ORIGIN.defense;
-  var lo = origin.stat + (left - origin.pixel) * NEEDLE_SCALE;
-  return [lo, lo + NEEDLE_SCALE];
-}
-
-// Tracks what we know about our stats as intervals. Starting stats and every
-// change are known exactly, so normally the intervals are a single value; the
-// needles check that, and let us recover if we pick up a game midway.
-var Tracker = /*#__PURE__*/function () {
-  function Tracker(lo, hi) {
-    _classCallCheck(this, Tracker);
-    this.lo = lo;
-    this.hi = hi;
-  }
-  return _createClass(Tracker, [{
-    key: "shift",
-    value: function shift(delta) {
-      this.lo = add(this.lo, delta);
-      this.hi = add(this.hi, delta);
-    }
-
-    // Returns false if the reading contradicted what we had, in which case we
-    // trust the needles and start over from them
-  }, {
-    key: "observe",
-    value: function observe(needles) {
-      var lo = _toConsumableArray(this.lo);
-      var hi = _toConsumableArray(this.hi);
-      var _iterator = _createForOfIteratorHelper(needles),
-        _step;
-      try {
-        for (_iterator.s(); !(_step = _iterator.n()).done;) {
-          var _step$value = _slicedToArray(_step.value, 2),
-            stat = _step$value[0],
-            left = _step$value[1];
-          var _needleInterval = needleInterval(stat, left),
-            _needleInterval2 = _slicedToArray(_needleInterval, 2),
-            nlo = _needleInterval2[0],
-            nhi = _needleInterval2[1];
-          lo[stat] = Math.max(lo[stat], nlo);
-          hi[stat] = Math.min(hi[stat], nhi);
-        }
-      } catch (err) {
-        _iterator.e(err);
-      } finally {
-        _iterator.f();
-      }
-      if (lo.every((v, i) => v < hi[i])) {
-        var _ref = [lo, hi];
-        this.lo = _ref[0];
-        this.hi = _ref[1];
-        return true;
-      }
-      var fresh = Tracker.unknown();
-      var _iterator2 = _createForOfIteratorHelper(needles),
-        _step2;
-      try {
-        for (_iterator2.s(); !(_step2 = _iterator2.n()).done;) {
-          var _step2$value = _slicedToArray(_step2.value, 2),
-            _stat = _step2$value[0],
-            _left = _step2$value[1];
-          var _needleInterval3 = needleInterval(_stat, _left);
-          var _needleInterval4 = _slicedToArray(_needleInterval3, 2);
-          fresh.lo[_stat] = _needleInterval4[0];
-          fresh.hi[_stat] = _needleInterval4[1];
-        }
-      } catch (err) {
-        _iterator2.e(err);
-      } finally {
-        _iterator2.f();
-      }
-      var _ref2 = [fresh.lo, fresh.hi];
-      this.lo = _ref2[0];
-      this.hi = _ref2[1];
-      return false;
-    }
-
-    // Our stats are whole numbers, so a width-1 interval is exact
-  }, {
-    key: "estimate",
-    value: function estimate() {
-      return this.lo.map((lo, i) => this.hi[i] - lo <= 1 ? lo : (lo + this.hi[i]) / 2);
-    }
-  }], [{
-    key: "exactly",
-    value: function exactly(stats) {
-      return new Tracker(_toConsumableArray(stats), stats.map(v => v + 1));
-    }
-  }, {
-    key: "unknown",
-    value: function unknown() {
-      return new Tracker([0, 0, 0, 0, 0, 0], [400, 400, 400, 400, 400, 400]);
-    }
-  }]);
-}();
-
-// Everything about the game in progress except our stats, which the tracker owns
-
 var fmt = n => Math.round(n).toString();
 var fmtStats = stats => stats.map((v, i) => "".concat(STAT_NAMES[i], " ").concat(fmt(v))).join(", ");
 var Engine = /*#__PURE__*/function () {
   function Engine(client, options) {
     _classCallCheck(this, Engine);
-    _defineProperty(this, "tracker", Tracker.unknown());
-    _defineProperty(this, "config", {});
-    _defineProperty(this, "progress", null);
     _defineProperty(this, "gamesPlayed", 0);
-    // Score worth locking in, given the games still to come
-    _defineProperty(this, "lockTarget", -Infinity);
     // The best configuration only changes once the rewards are collected
     _defineProperty(this, "configurations", new Map());
     this.client = client;
@@ -2499,16 +2157,15 @@ var Engine = /*#__PURE__*/function () {
     key: "loop",
     value: function loop(first) {
       var observation = first;
-      for (var guard = 0; guard < 500; guard++) {
-        this.observe(observation);
+      for (;;) {
         var next = void 0;
         switch (observation.choice) {
           case 1313:
-            if (this.gamesPlayed >= this.options.games || !observation.canStart) {
+            if (this.gamesPlayed >= this.options.games || !this.canStart(observation)) {
               this.client.choose(1313, 8);
               return;
             }
-            next = this.startGame();
+            next = this.startGame(observation);
             break;
           case 1314:
             next = this.chooseMenu(observation);
@@ -2532,167 +2189,141 @@ var Engine = /*#__PURE__*/function () {
         observation = next;
       }
     }
-
-    // Before a game our stats follow from the configuration alone; during one
-    // the needles check the stats we've tracked
   }, {
-    key: "observe",
-    value: function observe(observation) {
-      if (Object.keys(observation.config).length === 4) this.config = observation.config;
-      if (observation.choice === 1313 && Object.keys(this.config).length === 4) {
-        this.tracker = Tracker.exactly(startingStats(this.config));
-      }
-      if (observation.needles.size === 0) return;
-      if (!this.tracker.observe(observation.needles)) {
-        this.log("Needles disagreed with tracked stats; resetting from the needles.", "gray");
-      }
+    key: "canStart",
+    value: function canStart(observation) {
+      return observation.buttons.some(b => b.option === START_OPTION);
     }
-
-    // What the strategy needs to know about the game in progress
   }, {
     key: "state",
-    value: function state() {
-      return _objectSpread2(_objectSpread2({}, this.progress), {}, {
-        stats: this.tracker.estimate()
-      });
+    value: function state(observation) {
+      if (!observation.game) throw new Error("KoLmafia isn't tracking this game's stats.");
+      return observation.game;
+    }
+
+    // Only the score we lock in counts, so with games to come after this one
+    // there's a bar this one has to clear to be worth locking in
+  }, {
+    key: "lockTarget",
+    value: function lockTarget(gamesAfter) {
+      return this.options.lockIn && gamesAfter > 0 ? lockInBar(this.ctx.boosts, gamesAfter) : -Infinity;
     }
 
     // *** Setting up
   }, {
+    key: "bestConfiguration",
+    value: function bestConfiguration(fixed) {
+      var key = JSON.stringify(fixed);
+      var cached = this.configurations.get(key);
+      if (cached) return cached;
+      var allowed = config => UPGRADES.every(u => fixed[u] === undefined || fixed[u] === config[u]);
+      var best = evaluateConfigurations(this.ctx, allowed, this.options.samples)[0].choice;
+      this.configurations.set(key, best);
+      return best;
+    }
+  }, {
     key: "startGame",
-    value: function startGame() {
+    value: function startGame(lobby) {
       var rewards = this.client.rewardsPending();
       var fixed = rewards ? this.options.rewards : {};
-
-      // Only the score we lock in counts, so with games to come after this one
-      // there's a bar this one has to clear to be worth locking in
       var gamesAfter = Math.min(this.client.playsLeft() - 1, this.options.games - this.gamesPlayed - 1);
-      this.lockTarget = this.options.lockIn && gamesAfter > 0 ? lockInBar(this.ctx.boosts, gamesAfter) : -Infinity;
-      var key = JSON.stringify(fixed);
-      var target = this.configurations.get(key);
-      if (!target) {
-        var allowed = config => UPGRADES.every(u => fixed[u] === undefined || fixed[u] === config[u]);
-        target = evaluateConfigurations(this.ctx, allowed, this.options.samples)[0].choice;
-        this.configurations.set(key, target);
-      }
-      var chosen = target;
+      var chosen = this.bestConfiguration(fixed);
       this.log("Configuration: ".concat(UPGRADES.map(u => STYLE_NAMES[u][chosen[u] - 1]).join(", ")) + "".concat(rewards ? " (rewards pending)" : ""), "blue");
-      if (this.lockTarget > -Infinity) {
-        this.log("".concat(gamesAfter, " more game").concat(gamesAfter === 1 ? "" : "s", " after this, so locking in at ").concat(fmt(this.lockTarget), "+"), "blue");
+      var bar = this.lockTarget(gamesAfter);
+      if (bar > -Infinity) {
+        this.log("".concat(gamesAfter, " more game").concat(gamesAfter === 1 ? "" : "s", " after this, so locking in at ").concat(fmt(bar), "+"), "blue");
       }
+      var config = lobby.config;
       var _iterator = _createForOfIteratorHelper(UPGRADES),
         _step;
       try {
         for (_iterator.s(); !(_step = _iterator.n()).done;) {
           var upgrade = _step.value;
-          for (var i = 0; i < 3 && this.config[upgrade] !== chosen[upgrade]; i++) {
-            this.observe(this.client.choose(1313, UPGRADE_OPTION[upgrade]));
+          for (var i = 0; i < 3 && config[upgrade] !== chosen[upgrade]; i++) {
+            config = this.client.choose(1313, UPGRADE_OPTION[upgrade]).config;
           }
-          if (this.config[upgrade] !== chosen[upgrade]) throw new Error("Couldn't set ".concat(upgrade));
+          if (config[upgrade] !== chosen[upgrade]) throw new Error("Couldn't set ".concat(upgrade));
         }
       } catch (err) {
         _iterator.e(err);
       } finally {
         _iterator.f();
       }
-      var start = this.client.choose(1313, 5);
-      this.progress = newGame(this.tracker.estimate(), start.enemy);
-      this.log("Game ".concat(this.gamesPlayed + 1, " started. Stats: ").concat(fmtStats(this.tracker.estimate())), "blue");
+      var start = this.client.choose(1313, START_OPTION);
+      this.log("Game ".concat(this.gamesPlayed + 1, " started. Stats: ").concat(fmtStats(this.state(start).stats)), "blue");
       return start;
     }
 
     // *** Playing
   }, {
-    key: "ensureProgress",
-    value: function ensureProgress(observation) {
-      // If we've picked up a game in progress we don't know which options were
-      // already taken; assume none were and go by the needles.
-      if (!this.progress) this.progress = newGame(this.tracker.estimate(), observation.enemy);
-      if (observation.turn) this.progress.turn = observation.turn;
-      if (observation.enemy) this.progress.enemy = observation.enemy;
-      return this.progress;
-    }
-  }, {
     key: "chooseMenu",
     value: function chooseMenu(observation) {
-      var progress = this.ensureProgress(observation);
-      var ranked = evaluateMenus(this.ctx, this.state(), this.options.samples, progress.turn * 1000);
-      this.log("Turn ".concat(progress.turn, " vs ").concat(progress.enemy ?? "?", " (").concat(fmt(progress.cheese), " cheese): ").concat(ranked.map(r => "".concat(r.choice, " ").concat(fmt(r.value))).join(", ")));
+      var game = this.state(observation);
+      var ranked = evaluateMenus(this.ctx, game, this.options.samples, game.turn * 1000);
+      this.log("Turn ".concat(game.turn, " vs ").concat(game.enemy ?? "?", " (").concat(fmt(game.cheese), " cheese): ").concat(ranked.map(r => "".concat(r.choice, " ").concat(fmt(r.value))).join(", ")));
       return this.client.choose(1314, MENU_OPTION[ranked[0].choice]);
     }
   }, {
     key: "chooseButton",
     value: function chooseButton(observation) {
-      var progress = this.ensureProgress(observation);
+      var game = this.state(observation);
       var menu = MENUS.find(m => MENU_CHOICE[m] === observation.choice);
-      var ids = observation.buttons.map(b => identify(menu, b, progress.pools[menu]));
-      var known = observation.buttons.flatMap((button, i) => ids[i] === null ? [] : [{
-        button,
-        id: ids[i]
-      }]);
+      var known = observation.buttons.flatMap(button => {
+        var id = BUTTONS[menu][button.name];
+        return id === undefined ? [] : [{
+          button,
+          id
+        }];
+      });
       if (known.length === 0) {
-        // Nothing we recognise; take the first and let the needles sort us out
+        // Nothing we recognise; take the first and let KoLmafia track the rest
         this.log("  Unrecognised buttons; taking ".concat(observation.buttons[0].name), "red");
-        this.tracker = Tracker.unknown();
         return this.client.choose(observation.choice, observation.buttons[0].option);
       }
-      var ranked = evaluateButtons(this.ctx, this.state(), menu, known.map(k => k.id), this.options.samples, progress.turn * 1000);
-      // With games to come, a game that isn't good enough to lock in is just
-      // practice, so gamble on the wishing well: it's worth as much as the
-      // other big hauls on average, and its all-or-nothing 300 makes more of
-      // our games lockable. Simulated, this lifts days scoring 1900+ by about
-      // three percentage points without costing anything on average.
-      var pick = ranked[0];
-      if (this.lockTarget > -Infinity && progress.cheese >= 10) {
-        pick = ranked.find(r => MENU_OPTIONS[menu][known[r.choice].id].kind === "well") ?? pick;
+      var well = known.find(k => MENU_OPTIONS[menu][k.id].kind === "well");
+      if (well && game.cheese >= WELL_COST) {
+        this.log("  -> ".concat(well.button.name), "green");
+        return this.client.choose(observation.choice, well.button.option);
       }
-      var _known$pick$choice = known[pick.choice],
-        button = _known$pick$choice.button,
-        id = _known$pick$choice.id;
+      var ranked = evaluateButtons(this.ctx, game, menu, known.map(k => k.id), this.options.samples, game.turn * 1000);
+      var button = known[ranked[0].choice].button;
       this.log("  ".concat(ranked.map(r => "".concat(known[r.choice].button.name, " ").concat(fmt(r.value))).join(", ")));
       this.log("  -> ".concat(button.name), "green");
-      var option = MENU_OPTIONS[menu][id];
-      if (option.kind === "stats") this.tracker.shift(option.delta);
-      var result = this.client.choose(observation.choice, button.option);
-      progress.cheese += result.cheeseGained;
-      progress.pools[menu] = progress.pools[menu].filter(x => x !== id);
-      progress.turn += 1;
-      return result;
+      return this.client.choose(observation.choice, button.option);
     }
   }, {
     key: "fight",
     value: function fight(observation) {
-      var _result$battle, _result$battle2, _result$battle3;
-      var progress = this.ensureProgress(observation);
-      var battle = battleNumber(progress.turn);
-      var enemy = progress.enemy ?? "masterofnone";
-      var _bestStance = bestStance(this.ctx, this.tracker.estimate(), enemy, battle),
+      var game = this.state(observation);
+      var battle = battleNumber(game.turn);
+      var enemy = game.enemy;
+      if (!enemy) throw new Error("KoLmafia doesn't know which castle we're fighting.");
+      var _bestStance = bestStance(this.ctx, game.stats, enemy, battle),
         stance = _bestStance.stance,
         chances = _bestStance.chances;
       this.log("Battle ".concat(battle, " vs ").concat(enemy, ": ").concat(STANCES.map((s, i) => "".concat(s.name, " ").concat(fmt(chances[i] * 100), "%")).join(", ")));
       var result = this.client.choose(1315, stance.option);
-      progress.cheese += result.cheeseGained;
-      progress.turn += 1;
-      progress.enemy = null;
-      this.log("  ".concat((_result$battle = result.battle) !== null && _result$battle !== void 0 && _result$battle.won ? "Won" : "Lost", " (").concat((_result$battle2 = result.battle) !== null && _result$battle2 !== void 0 && _result$battle2.attacking ? "attacking" : "defending", ")") + "".concat(result.cheeseGained ? ", +".concat(result.cheeseGained, " cheese") : ""), (_result$battle3 = result.battle) !== null && _result$battle3 !== void 0 && _result$battle3.won ? "green" : "red");
+      var outcome = result.lastBattle;
+      var gained = this.state(result).cheese - game.cheese;
+      this.log("  ".concat(outcome !== null && outcome !== void 0 && outcome.won ? "Won" : "Lost", " (").concat(outcome !== null && outcome !== void 0 && outcome.attacking ? "attacking" : "defending", ")") + "".concat(gained > 0 ? ", +".concat(gained, " cheese") : ""), outcome !== null && outcome !== void 0 && outcome.won ? "green" : "red");
       return result;
     }
   }, {
     key: "endGame",
     value: function endGame(observation) {
-      var over = observation.gameOver;
       // The rewards arrive with whichever option we pick here
       this.gamesPlayed += 1;
-      this.progress = null;
-      if (!over) return this.client.choose(1316, 3);
-      this.log("Game over: ".concat(over.cheese, " cheese."), "blue");
-      var remaining = Math.min(over.playsLeft, this.options.games - this.gamesPlayed);
+      var _this$state = this.state(observation),
+        cheese = _this$state.cheese;
+      this.log("Game over: ".concat(cheese, " cheese."), "blue");
+      var remaining = Math.min(this.client.playsLeft(), this.options.games - this.gamesPlayed);
+      var canLockIn = observation.buttons.some(b => b.name === LOCK_IN);
 
       // Lock in if we hit what we were going for, or if this is the last game.
       // Once locked in there's nothing more to play for today.
-      var target = remaining > 0 ? this.lockTarget : -Infinity;
-      if (this.options.lockIn && over.canLockIn && over.cheese >= target) {
-        this.log("Locking in ".concat(over.cheese).concat(target > -Infinity ? " (aimed for ".concat(fmt(target), ")") : "", "."), "green");
+      var target = this.lockTarget(remaining);
+      if (this.options.lockIn && canLockIn && cheese >= target) {
+        this.log("Locking in ".concat(cheese).concat(target > -Infinity ? " (aimed for ".concat(fmt(target), ")") : "", "."), "green");
         this.client.choose(1316, 1);
         return null;
       }
@@ -2703,11 +2334,144 @@ var Engine = /*#__PURE__*/function () {
   }]);
 }();
 
-var _templateObject$1, _templateObject2$1, _templateObject3;
+var _templateObject$1, _templateObject2$1;
+
+// Everything about talking to KoL through KoLmafia lives here. The game
+// itself comes from what KoLmafia tracks as we play.
+
 var RIG = $item(_templateObject$1 || (_templateObject$1 = _taggedTemplateLiteral(["Bastille Battalion control rig"])));
 var VOUCHER = $item(_templateObject2$1 || (_templateObject2$1 = _taggedTemplateLiteral(["Bastille Battalion control rig loaner voucher"])));
-var DAILY_ITEMS = $items(_templateObject3 || (_templateObject3 = _taggedTemplateLiteral(["Brutal brogues, Draftsman's driving gloves, Nouveau nosering"])));
-var PLAYS_PER_DAY = 5;
+
+// The preferences KoLmafia keeps Bastille Battalion in
+
+// e.g. MA=120,MD=140,CA=100,...
+function readStats(pref) {
+  var named = new Map(pref.split(",").map(part => part.split("=")));
+  var stats = STAT_NAMES.map(name => Number(named.get(name)));
+  return stats.every(v => Number.isFinite(v)) ? stats : null;
+}
+var STYLES = new Map(UPGRADES.flatMap(upgrade => STYLE_KEYS[upgrade].map((key, i) => [key, {
+  upgrade,
+  level: i + 1
+}])));
+
+// e.g. BARBECUE,DRAFTSMAN,GESTURE,SHARKS
+function readConfiguration(pref) {
+  var config = {};
+  var _iterator = _createForOfIteratorHelper(pref.split(",")),
+    _step;
+  try {
+    for (_iterator.s(); !(_step = _iterator.n()).done;) {
+      var key = _step.value;
+      var style = STYLES.get(key);
+      if (style) config[style.upgrade] = style.level;
+    }
+  } catch (err) {
+    _iterator.e(err);
+  } finally {
+    _iterator.f();
+  }
+  return config;
+}
+
+// e.g. MA>MD,CA<CD,PA>PD when we attacked, MD<MA,... when we defended
+function readBattle(prefs) {
+  var results = prefs._bastilleLastBattleResults.split(",");
+  if (results.length !== 3) return null;
+  return {
+    attacking: results[0][1] === "A",
+    results: results.map(r => r[2] === ">"),
+    won: prefs._bastilleLastBattleWon
+  };
+}
+
+// What's left to be offered once these buttons have been taken this game
+function poolsAfter(taken) {
+  var pools = fullPools();
+  var _iterator2 = _createForOfIteratorHelper(MENUS),
+    _step2;
+  try {
+    var _loop = function _loop() {
+      var menu = _step2.value;
+      var ids = new Set(taken.map(name => BUTTONS[menu][name]));
+      pools[menu] = pools[menu].filter(id => !ids.has(id));
+    };
+    for (_iterator2.s(); !(_step2 = _iterator2.n()).done;) {
+      _loop();
+    }
+  } catch (err) {
+    _iterator2.e(err);
+  } finally {
+    _iterator2.f();
+  }
+  return pools;
+}
+function readGame(prefs) {
+  var stats = readStats(prefs._bastilleStats);
+  if (!stats) return null;
+  var enemy = prefs._bastilleEnemyCastle;
+  return {
+    turn: prefs._bastilleGameTurn,
+    stats,
+    cheese: prefs._bastilleCheese,
+    pools: poolsAfter(prefs._bastilleOptionsTaken.split(",").filter(Boolean)),
+    enemy: CASTLES.some(c => c.key === enemy) ? enemy : null
+  };
+}
+function readObservation(_ref) {
+  var choice = _ref.choice,
+    options = _ref.options,
+    prefs = _ref.prefs;
+  return {
+    choice,
+    buttons: Object.entries(options).map(_ref2 => {
+      var _ref3 = _slicedToArray(_ref2, 2),
+        option = _ref3[0],
+        name = _ref3[1];
+      return {
+        option: Number(option),
+        name
+      };
+    }),
+    config: readConfiguration(prefs._bastilleCurrentStyles),
+    game: readGame(prefs),
+    lastBattle: readBattle(prefs)
+  };
+}
+// Today's leaderboard, from the Hi Scores button in the lobby. KoLmafia
+// doesn't read this one.
+function parseHiScores(html) {
+  if (!html.includes("Cheesemasters:")) return null;
+  // String.prototype.matchAll isn't reliably available in KoLmafia's Rhino
+  var re = /showplayer\.php\?who=(\d+)>([^<]+)<\/a>.*?<td>([\d,]+) curds/g;
+  var scores = [];
+  var match;
+  while ((match = re.exec(html)) !== null) {
+    var _match = match,
+      _match2 = _slicedToArray(_match, 4),
+      id = _match2[1],
+      name = _match2[2],
+      cheese = _match2[3];
+    scores.push({
+      playerId: Number(id),
+      name,
+      cheese: Number(cheese.replace(/,/g, ""))
+    });
+  }
+  return scores;
+}
+function readPrefs() {
+  return {
+    _bastilleCurrentStyles: get("_bastilleCurrentStyles"),
+    _bastilleStats: get("_bastilleStats"),
+    _bastilleEnemyCastle: get("_bastilleEnemyCastle"),
+    _bastilleGameTurn: get("_bastilleGameTurn"),
+    _bastilleCheese: get("_bastilleCheese"),
+    _bastilleLastBattleWon: get("_bastilleLastBattleWon"),
+    _bastilleLastBattleResults: get("_bastilleLastBattleResults"),
+    _bastilleOptionsTaken: get("_bastilleOptionsTaken", "")
+  };
+}
 var GameClient = /*#__PURE__*/function () {
   function GameClient() {
     _classCallCheck(this, GameClient);
@@ -2715,7 +2479,8 @@ var GameClient = /*#__PURE__*/function () {
   return _createClass(GameClient, [{
     key: "current",
     value: function current() {
-      return parseObservation(kolmafia.visitUrl("choice.php"));
+      kolmafia.visitUrl("choice.php");
+      return this.read();
     }
   }, {
     key: "open",
@@ -2730,12 +2495,51 @@ var GameClient = /*#__PURE__*/function () {
         item = VOUCHER;
       }
       if (kolmafia.itemAmount(item) === 0) kolmafia.retrieveItem(1, item);
-      return parseObservation(kolmafia.visitUrl("inv_use.php?whichitem=".concat(item.id, "&pwd=").concat(kolmafia.myHash())));
+      return this.useRig(item);
     }
   }, {
     key: "choose",
     value: function choose(choice, option) {
-      return parseObservation(kolmafia.visitUrl("choice.php?whichchoice=".concat(choice, "&option=").concat(option, "&pwd=").concat(kolmafia.myHash())));
+      this.visitChoice(choice, option);
+      return this.read();
+    }
+  }, {
+    key: "useRig",
+    value: function useRig(item) {
+      kolmafia.visitUrl("inv_use.php?whichitem=".concat(item.id, "&pwd=").concat(kolmafia.myHash()));
+      return this.read();
+    }
+
+    // KoLmafia has already taken in the page we just visited
+  }, {
+    key: "read",
+    value: function read() {
+      var choice = kolmafia.handlingChoice() ? kolmafia.lastChoice() : null;
+      return readObservation({
+        choice,
+        options: choice === null ? {} : kolmafia.availableChoiceOptions(),
+        prefs: readPrefs()
+      });
+    }
+  }, {
+    key: "visitChoice",
+    value: function visitChoice(choice, option) {
+      return kolmafia.visitUrl("choice.php?whichchoice=".concat(choice, "&option=").concat(option, "&pwd=").concat(kolmafia.myHash()));
+    }
+
+    // Today's leaderboard, or null if we can't get to it. Never spends a loaner
+    // voucher just to look.
+  }, {
+    key: "hiScores",
+    value: function hiScores() {
+      if (!have(RIG)) return null;
+      var page = this.current();
+      if (page.choice === null) page = this.useRig(RIG);
+      if (page.choice !== 1313) return null;
+      var html = this.visitChoice(1313, 6);
+      // With plays left the board keeps us in the lobby
+      if (kolmafia.handlingChoice()) this.visitChoice(1313, 8);
+      return parseHiScores(html);
     }
   }, {
     key: "boosts",
@@ -2745,7 +2549,14 @@ var GameClient = /*#__PURE__*/function () {
   }, {
     key: "rewardsPending",
     value: function rewardsPending() {
-      return !DAILY_ITEMS.some(item => have(item));
+      return !get("_bastilleRewardsCollected", false);
+    }
+
+    // Today's locked-in score, or 0 if we haven't locked one in
+  }, {
+    key: "lockedInScore",
+    value: function lockedInScore() {
+      return get("_bastilleLockedInScore", 0);
     }
   }, {
     key: "playsLeft",
@@ -2850,9 +2661,27 @@ function mainstat() {
   if (stat === $stat(_templateObject2 || (_templateObject2 = _taggedTemplateLiteral(["Mysticality"])))) return "myst";
   return "moxie";
 }
+var isMe = score => score.playerId === Number(kolmafia.myId());
+
+// Today's leaderboard, which only shows the top 15, with us under it if we
+// didn't make it
+function showHiScores(client) {
+  var scores = client.hiScores();
+  if (!scores) return kolmafia.print("Couldn't get to the Bastille Battalion hi scores.", "red");
+  var rank = scores.findIndex(isMe);
+  kolmafia.print("Today's top ".concat(scores.length, ":"), "blue");
+  scores.forEach((score, i) => {
+    kolmafia.print("".concat(i + 1, ". ").concat(score.name, " ").concat(score.cheese), i === rank ? "green" : undefined);
+  });
+  if (rank < 0) {
+    var locked = client.lockedInScore();
+    kolmafia.print(locked ? "?. ".concat(kolmafia.myName(), " ").concat(locked) : "No score locked in today.", "green");
+  }
+}
 function help() {
   kolmafia.print("pompeii [rewards...] [games=N] [samples=N] [nopotions] [nolock]");
-  kolmafia.print("Plays Bastille Battalion to maximise cheese, learning enemy castles as it goes.");
+  kolmafia.print("pompeii scores  (just show today's leaderboard)");
+  kolmafia.print("Plays Bastille Battalion to maximise cheese.");
   kolmafia.print("");
   kolmafia.print("Rewards for the first game of the day; anything not given is chosen for score:");
   kolmafia.print("  barbecue/babar/barbershop, brutalist/draftsman/nouveau, cannon/catapult/gesture,");
@@ -2866,6 +2695,7 @@ function main() {
   var args = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : "";
   var words = args.toLowerCase().split(/\s+/).filter(Boolean);
   if (words.includes("help")) return help();
+  if (words.includes("scores")) return showHiScores(new GameClient());
   var options = {
     rewards: {},
     games: 5,
@@ -2896,6 +2726,8 @@ function main() {
   var client = new GameClient();
   if (potions) client.drinkPotions();
   new Engine(client, options).run();
+  var locked = client.lockedInScore();
+  kolmafia.print(locked ? "Locked in ".concat(locked, " today.") : "No score locked in today.", "blue");
 }
 
 exports.main = main;
