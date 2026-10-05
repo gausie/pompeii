@@ -83,9 +83,20 @@ describe("poolsAfter", () => {
 describe("parseHiScores", () => {
   it("parses today's leaderboard", () => {
     const scores = parseHiScores(fixture("hiscores"));
-    expect(scores).toHaveLength(8);
-    expect(scores?.[0]).toEqual({ playerId: 1197090, name: "gaUsie", cheese: 1579 });
-    expect(scores?.[7]).toEqual({ playerId: 754053, name: "Gargonite", cheese: 19 });
+    expect(scores?.today).toHaveLength(8);
+    expect(scores?.today[0]).toEqual({ playerId: 1197090, name: "gaUsie", cheese: 1579 });
+    expect(scores?.today[7]).toEqual({ playerId: 754053, name: "Gargonite", cheese: 19 });
+    expect(scores?.yesterday).toEqual([]);
+  });
+
+  it("splits out yesterday's final standings", () => {
+    const scores = parseHiScores(fixture("hiscores_yesterday"));
+    expect(scores?.today).toHaveLength(15);
+    expect(scores?.today[0]).toEqual({ playerId: 119474, name: "adwriter", cheese: 1890 });
+    expect(scores?.today[14]).toEqual({ playerId: 360318, name: "GadTheHero", cheese: 412 });
+    expect(scores?.yesterday).toHaveLength(15);
+    expect(scores?.yesterday[0]).toEqual({ playerId: 2138850, name: "PeKaJe", cheese: 1913 });
+    expect(scores?.yesterday[14]).toEqual({ playerId: 3235855, name: "Prusias", cheese: 975 });
   });
 
   it("returns null for other pages", () => {

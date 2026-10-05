@@ -37,25 +37,40 @@ function mainstat(): "muscle" | "myst" | "moxie" {
 
 const isMe = (score: Score) => score.playerId === Number(myId());
 
+function printScores(scores: Score[]): number {
+  const rank = scores.findIndex(isMe);
+  scores.forEach((score, i) => {
+    print(`${i + 1}. ${score.name} ${score.cheese}`, i === rank ? "green" : undefined);
+  });
+  return rank;
+}
+
 // Today's leaderboard, which only shows the top 15, with us under it if we
 // didn't make it
 function showHiScores(client: GameClient): void {
   const scores = client.hiScores();
   if (!scores) return print("Couldn't get to the Bastille Battalion hi scores.", "red");
-  const rank = scores.findIndex(isMe);
-  print(`Today's top ${scores.length}:`, "blue");
-  scores.forEach((score, i) => {
-    print(`${i + 1}. ${score.name} ${score.cheese}`, i === rank ? "green" : undefined);
-  });
-  if (rank < 0) {
+  print(`Today's top ${scores.today.length}:`, "blue");
+  if (printScores(scores.today) < 0) {
     const locked = client.lockedInScore();
     print(locked ? `?. ${myName()} ${locked}` : "No score locked in today.", "green");
   }
 }
 
+// Yesterday's final standings. Our locked-in score has been reset by now, so
+// there's nothing to show if we didn't place.
+function showYesterday(client: GameClient): void {
+  const scores = client.hiScores();
+  if (!scores) return print("Couldn't get to the Bastille Battalion hi scores.", "red");
+  if (scores.yesterday.length === 0) return print("No final standings for yesterday.", "red");
+  print(`Yesterday's top ${scores.yesterday.length}:`, "blue");
+  if (printScores(scores.yesterday) < 0) print("You didn't place yesterday.", "green");
+}
+
 function help(): void {
   print("pompeii [rewards...] [games=N] [samples=N] [nopotions] [nolock]");
   print("pompeii scores  (just show today's leaderboard)");
+  print("pompeii yesterday  (just show yesterday's final standings)");
   print("Plays Bastille Battalion to maximise cheese.");
   print("");
   print("Rewards for the first game of the day; anything not given is chosen for score:");
@@ -75,6 +90,7 @@ export function main(args = ""): void {
   const words = args.toLowerCase().split(/\s+/).filter(Boolean);
   if (words.includes("help")) return help();
   if (words.includes("scores")) return showHiScores(new GameClient());
+  if (words.includes("yesterday")) return showYesterday(new GameClient());
 
   const options: Options = {
     rewards: {},

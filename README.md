@@ -9,13 +9,14 @@ cheese, take the biggest haul).
 ```
 pompeii [rewards...] [games=N] [samples=N] [nopotions] [nolock]
 pompeii scores
+pompeii yesterday
 ```
 
 Run `pompeii help` for the options. By default it tops up the Bastille potions to 3 turns each,
 plays every game left today with every style picked for score, and locks in a score for the
 leaderboard when it's unlikely to do better with the games remaining. Name rewards (e.g.
 `pompeii mainstat draftsman`) to fix those styles for the first game. `pompeii scores` shows
-today's leaderboard.
+today's leaderboard and `pompeii yesterday` shows yesterday's final standings.
 
 Set `pompeiiNoLock=true` on a character to stop it ever locking in a score there.
 

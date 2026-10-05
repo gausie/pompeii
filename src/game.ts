@@ -128,10 +128,9 @@ export function readObservation({ choice, options, prefs }: MafiaState): Observa
 
 export type Score = { playerId: number; name: string; cheese: number };
 
-// Today's leaderboard, from the Hi Scores button in the lobby. KoLmafia
-// doesn't read this one.
-export function parseHiScores(html: string): Score[] | null {
-  if (!html.includes("Cheesemasters:")) return null;
+export type HiScores = { today: Score[]; yesterday: Score[] };
+
+function parseScores(html: string): Score[] {
   // String.prototype.matchAll isn't reliably available in KoLmafia's Rhino
   const re = /showplayer\.php\?who=(\d+)>([^<]+)<\/a>.*?<td>([\d,]+) curds/g;
   const scores: Score[] = [];
@@ -141,6 +140,14 @@ export function parseHiScores(html: string): Score[] | null {
     scores.push({ playerId: Number(id), name, cheese: Number(cheese.replace(/,/g, "")) });
   }
   return scores;
+}
+
+// The leaderboards from the Hi Scores button in the lobby. KoLmafia doesn't
+// read these. Yesterday's final standings sit below today's, when there are any.
+export function parseHiScores(html: string): HiScores | null {
+  if (!html.includes("Cheesemasters:")) return null;
+  const [today, yesterday = ""] = html.split("Yesterday's final standings:");
+  return { today: parseScores(today), yesterday: parseScores(yesterday) };
 }
 
 function readPrefs(): BastillePrefs {
@@ -200,9 +207,9 @@ export class GameClient implements Client {
     return visitUrl(`choice.php?whichchoice=${choice}&option=${option}&pwd=${myHash()}`);
   }
 
-  // Today's leaderboard, or null if we can't get to it. Never spends a loaner
+  // The leaderboards, or null if we can't get to them. Never spends a loaner
   // voucher just to look.
-  hiScores(): Score[] | null {
+  hiScores(): HiScores | null {
     if (!have(RIG)) return null;
     let page = this.current();
     if (page.choice === null) page = this.useRig(RIG);
