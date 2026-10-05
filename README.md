@@ -2,6 +2,10 @@
 
 Plays Bastille Battalion for the most cheese it can get.
 
+Stances are chosen to maximise the chance of winning the battle. Configurations, menus and options
+are chosen by Monte Carlo rollouts of the rest of the game under a greedy policy (always look for
+cheese, take the biggest haul).
+
 ```
 pompeii [rewards...] [games=N] [samples=N] [nopotions] [nolock]
 pompeii scores
@@ -12,18 +16,6 @@ plays every game left today with every style picked for score, and locks in a sc
 leaderboard when it's unlikely to do better with the games remaining. Name rewards (e.g.
 `pompeii mainstat draftsman`) to fix those styles for the first game. `pompeii scores` shows
 today's leaderboard.
-
-## How it decides
-
-- It reads the game from what KoLmafia tracks (the `_bastille*` preferences and the choice
-  options), so the only page it parses itself is the leaderboard. That includes your exact
-  stats: everyone starts from the same baseline, and every style and prep option changes them by
-  a known amount. This needs KoLmafia r29336 or later.
-- Every castle of a type starts with the same stats, and survivors grow 5-25% per stat each round
-  of the bracket, so the odds of each battle comparison are computed exactly.
-- Stances are chosen to maximise the chance of winning the battle. Configurations, menus and
-  options are chosen by Monte Carlo rollouts of the rest of the game under a greedy policy
-  (always look for cheese, take the biggest haul).
 
 Set `pompeiiNoLock=true` on a character to stop it ever locking in a score there.
 
