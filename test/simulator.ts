@@ -39,6 +39,8 @@ export type SimulatorSettings = {
   // One, in the real game
   voucherPlays: number;
   voucherPrice: number;
+  // Every roll but the bracket goes our way, for finding the ceiling on a score
+  lucky: boolean;
   hiScores: HiScores;
 };
 
@@ -50,6 +52,7 @@ export const DEFAULT_SETTINGS: SimulatorSettings = {
   boosts: [0, 0, 0],
   voucherPlays: 1,
   voucherPrice: 100,
+  lucky: false,
   hiScores: { today: [], yesterday: [] },
 };
 
@@ -104,9 +107,18 @@ export class Simulator implements Client {
     return lo + Math.floor(this.#random() * (hi - lo + 1));
   }
 
+  #cheeseRoll(): number {
+    return this.#settings.lucky ? 20 : this.#between(10, 20);
+  }
+
+  #growth(): number {
+    return this.#settings.lucky ? GROWTH.min : this.#between(GROWTH.min, GROWTH.max);
+  }
+
   // Stat-scaled cheese is fuzzed by about 10% either way
   // ...then rounded up or down at random, in proportion
   #fuzz(amount: number): number {
+    if (this.#settings.lucky) return Math.ceil(amount * 1.1);
     const fuzzed = amount * (0.9 + 0.2 * this.#random());
     return Math.floor(fuzzed) + (this.#random() < fuzzed % 1 ? 1 : 0);
   }
@@ -220,9 +232,7 @@ export class Simulator implements Client {
       const others = remaining.filter((r) => r !== foe);
       remaining = sample(others, Math.floor(others.length / 2), this.#random).map((r) => ({
         ...r,
-        strength: r.strength.map((v) =>
-          Math.floor((v * this.#between(GROWTH.min, GROWTH.max)) / 100),
-        ) as Stats,
+        strength: r.strength.map((v) => Math.floor((v * this.#growth()) / 100)) as Stats,
       }));
     }
     return {
@@ -272,7 +282,7 @@ export class Simulator implements Client {
     if (effect.kind === "stats") {
       match.strength = match.strength.map((v, i) => v + effect.delta[i]) as Stats;
       if (effect.cheese > 0) {
-        const amount = this.#between(10, 20);
+        const amount = this.#cheeseRoll();
         match.hoard += amount;
       }
     } else {
@@ -293,7 +303,9 @@ export class Simulator implements Client {
         return this.#fuzz(Math.max(10, effect.inverse ? 200 - stat : stat));
       }
       case "well":
-        return match.hoard >= WELL_COST && this.#random() < 1 / 3 ? this.#fuzz(300) : 0;
+        return match.hoard >= WELL_COST && (this.#settings.lucky || this.#random() < 1 / 3)
+          ? this.#fuzz(300)
+          : 0;
     }
   }
 
@@ -303,20 +315,24 @@ export class Simulator implements Client {
     const match = this.#match as Match;
     const foe = this.#foe(match);
     const stance = STANCES[option - 1];
-    const attacking = this.#random() < stance.attackChance;
-
-    const results = CATEGORIES.map(({ attack, defense }, i) => {
-      const boost = 1 + Math.min(3, this.#settings.boosts[i]) / 10;
-      return attacking
-        ? (match.strength[attack] + stance.boost) * boost > foe.strength[defense]
-        : (match.strength[defense] + stance.boost) * boost >= foe.strength[attack];
-    }) as [boolean, boolean, boolean];
-    const won = results.filter(Boolean).length >= 2;
+    const compare = (attacking: boolean) =>
+      CATEGORIES.map(({ attack, defense }, i) => {
+        const boost = 1 + Math.min(3, this.#settings.boosts[i]) / 10;
+        return attacking
+          ? (match.strength[attack] + stance.boost) * boost > foe.strength[defense]
+          : (match.strength[defense] + stance.boost) * boost >= foe.strength[attack];
+      }) as [boolean, boolean, boolean];
+    const wins = (results: boolean[]) => results.filter(Boolean).length >= 2;
+    const attacking = this.#settings.lucky
+      ? wins(compare(true)) || !wins(compare(false))
+      : this.#random() < stance.attackChance;
+    const results = compare(attacking);
+    const won = wins(results);
     this.#lastBattle = { attacking, results, won };
 
     if (won) {
       let amount = 0;
-      for (let turn = 0; turn < match.clock; turn++) amount += this.#between(10, 20);
+      for (let turn = 0; turn < match.clock; turn++) amount += this.#cheeseRoll();
       match.hoard += amount;
     }
 
