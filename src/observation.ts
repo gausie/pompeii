@@ -32,7 +32,7 @@ export interface Client {
   boosts(): [number, number, number];
   // Whether the first game of the day's rewards are still to come
   rewardsPending(): boolean;
-  // Games we can still start today
+  // Games we can still start today, including from vouchers
   playsLeft(): number;
   log(message: string, color?: string): void;
 }

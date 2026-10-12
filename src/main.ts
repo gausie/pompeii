@@ -86,7 +86,7 @@ function help(): void {
 
 export function main(args = ""): void {
   // Bastille Battalion tracking
-  sinceKolmafiaRevision(29336);
+  sinceKolmafiaRevision(29360);
   const words = args.toLowerCase().split(/\s+/).filter(Boolean);
   if (words.includes("help")) return help();
   if (words.includes("scores")) return showHiScores(new GameClient());

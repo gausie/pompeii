@@ -234,7 +234,8 @@ export class GameClient implements Client {
   }
 
   playsLeft(): number {
-    return Math.max(0, PLAYS_PER_DAY - get("_bastilleGames"));
+    const played = get("_bastilleGames") + get("_bastilleVoucherGames", 0);
+    return Math.max(0, PLAYS_PER_DAY + get("_bastilleVouchersUsed", 0) - played);
   }
 
   log(message: string, color?: string): void {
