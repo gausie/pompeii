@@ -1,6 +1,7 @@
 import {
   availableAmount,
   availableChoiceOptions,
+  buy,
   Effect,
   handlingChoice,
   haveEffect,
@@ -30,7 +31,7 @@ import {
   STYLE_KEYS,
   UPGRADES,
 } from "./constants";
-import { BattleResult, Client, Observation } from "./observation";
+import { BattleResult, Client, HiScores, Observation, Score } from "./observation";
 import { fullPools, GameState, Pools } from "./strategy";
 
 // Everything about talking to KoL through KoLmafia lives here. The game
@@ -126,10 +127,6 @@ export function readObservation({ choice, options, prefs }: MafiaState): Observa
   };
 }
 
-export type Score = { playerId: number; name: string; cheese: number };
-
-export type HiScores = { today: Score[]; yesterday: Score[] };
-
 function parseScores(html: string): Score[] {
   // String.prototype.matchAll isn't reliably available in KoLmafia's Rhino
   const re = /showplayer\.php\?who=(\d+)>([^<]+)<\/a>.*?<td>([\d,]+) curds/g;
@@ -179,7 +176,6 @@ export class GameClient implements Client {
       if (!userConfirm("Use a loaner voucher to play Bastille Battalion?")) return null;
       item = VOUCHER;
     }
-    if (itemAmount(item) === 0) retrieveItem(1, item);
     return this.useRig(item);
   }
 
@@ -188,7 +184,16 @@ export class GameClient implements Client {
     return this.read();
   }
 
+  useVoucher(maxPrice: number): Observation | null {
+    if (!have(VOUCHER) && buy(VOUCHER, 1, maxPrice) === 0) {
+      print(`Couldn't buy a loaner voucher for ${maxPrice} meat or less.`, "red");
+      return null;
+    }
+    return this.useRig(VOUCHER);
+  }
+
   private useRig(item: Item): Observation {
+    if (itemAmount(item) === 0) retrieveItem(1, item);
     visitUrl(`inv_use.php?whichitem=${item.id}&pwd=${myHash()}`);
     return this.read();
   }
@@ -214,10 +219,14 @@ export class GameClient implements Client {
     let page = this.current();
     if (page.choice === null) page = this.useRig(RIG);
     if (page.choice !== 1313) return null;
-    const html = this.visitChoice(1313, 6);
-    // With plays left the board keeps us in the lobby
+    const scores = this.readBoard();
     if (handlingChoice()) this.visitChoice(1313, 8);
-    return parseHiScores(html);
+    return scores;
+  }
+
+  // With plays left the board keeps us in the lobby
+  readBoard(): HiScores | null {
+    return parseHiScores(this.visitChoice(1313, 6));
   }
 
   boosts(): [number, number, number] {
@@ -235,7 +244,11 @@ export class GameClient implements Client {
 
   playsLeft(): number {
     const played = get("_bastilleGames") + get("_bastilleVoucherGames", 0);
-    return Math.max(0, PLAYS_PER_DAY + get("_bastilleVouchersUsed", 0) - played);
+    return Math.max(0, PLAYS_PER_DAY + this.vouchersUsed() - played);
+  }
+
+  vouchersUsed(): number {
+    return get("_bastilleVouchersUsed", 0);
   }
 
   log(message: string, color?: string): void {

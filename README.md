@@ -8,6 +8,7 @@ cheese, take the biggest haul).
 
 ```
 pompeii [rewards...] [games=N] [samples=N] [nopotions] [nolock]
+pompeii [place=N] [min=N|yesterday] [vouchers=N] [maxprice=N] [...]
 pompeii scores
 pompeii yesterday
 ```
@@ -17,6 +18,20 @@ plays every game left today with every style picked for score, and locks in a sc
 leaderboard when it's unlikely to do better with the games remaining. Name rewards (e.g.
 `pompeii mainstat draftsman`) to fix those styles for the first game. `pompeii scores` shows
 today's leaderboard and `pompeii yesterday` shows yesterday's final standings.
+
+Or give it a goal and it locks in the first score that meets it. `place=N` beats whoever is in
+place N on today's board, read again before every game since it moves as people lock in. `min=N`
+won't take less than N, and `min=yesterday` won't take less than yesterday's winning score, which
+is useful early in the day when the board is still low. With both, it aims for the higher.
+
+Once the day's plays are spent it can buy and use loaner vouchers for one more game each, but only
+as many as `vouchers=N` allows (none by default), each for no more than `maxprice=N` (default: your
+`autoBuyPriceLimit`). If the goal is never met, nothing is locked in. With `nolock` it just stops
+once it meets the goal.
+
+```
+pompeii place=1 min=yesterday vouchers=100
+```
 
 Set `pompeiiNoLock=true` on a character to stop it ever locking in a score there.
 

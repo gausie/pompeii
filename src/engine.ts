@@ -34,7 +34,18 @@ export type Options = {
   games: number;
   samples: number;
   lockIn: boolean;
+  goal?: Goal;
 };
+
+export type Goal = {
+  // Beat whoever is in this place on today's board
+  place?: number;
+  min?: number | "yesterday";
+  vouchers: number;
+  maxPrice: number;
+};
+
+const ordinal = (n: number) => `${n}${n === 1 ? "st" : n === 2 ? "nd" : n === 3 ? "rd" : "th"}`;
 
 const fmt = (n: number) => Math.round(n).toString();
 const fmtStats = (stats: Stats) => stats.map((v, i) => `${STAT_NAMES[i]} ${fmt(v)}`).join(", ");
@@ -42,6 +53,10 @@ const fmtStats = (stats: Stats) => stats.map((v, i) => `${STAT_NAMES[i]} ${fmt(v
 export class Engine {
   ctx: Context;
   gamesPlayed = 0;
+  private vouchersUsedThisRun = 0;
+  private aim: number | null = null;
+  // Read once, from the lobby, since we might start partway through a game
+  private yesterdaysWinner: number | null = null;
   // The best configuration only changes once the rewards are collected
   private configurations = new Map<string, Configuration>();
 
@@ -57,6 +72,11 @@ export class Engine {
   }
 
   run(): void {
+    const locked = this.client.lockedInScore();
+    if (this.options.goal && this.options.lockIn && locked > 0) {
+      this.log(`Already locked in ${locked} today.`, "red");
+      return;
+    }
     let observation = this.client.current();
     if (observation.choice === null || observation.choice < 1313 || observation.choice > 1319) {
       const opened = this.client.open();
@@ -72,7 +92,15 @@ export class Engine {
       let next: Observation | null;
       switch (observation.choice) {
         case 1313:
-          if (this.gamesPlayed >= this.options.games || !this.canStart(observation)) {
+          if (!this.canStart(observation)) {
+            this.client.choose(1313, 8);
+            next = this.restock();
+            break;
+          }
+          if (
+            this.gamesPlayed >= this.options.games ||
+            (this.options.goal && !this.updateAim(this.options.goal))
+          ) {
             this.client.choose(1313, 8);
             return;
           }
@@ -118,6 +146,49 @@ export class Engine {
       : -Infinity;
   }
 
+  // Before every game, since the board moves as people lock in
+  private updateAim(goal: Goal): boolean {
+    const needsBoard =
+      goal.place !== undefined || (goal.min === "yesterday" && this.yesterdaysWinner === null);
+    const board = needsBoard ? this.client.readBoard() : null;
+    if (needsBoard && !board) {
+      this.log("Couldn't read the hi scores.", "red");
+      return false;
+    }
+    let min = goal.min;
+    if (min === "yesterday") {
+      if (this.yesterdaysWinner === null) {
+        const winner = board?.yesterday[0];
+        if (!winner) {
+          this.log("No final standings for yesterday to aim for.", "red");
+          return false;
+        }
+        this.log(`Yesterday's winner ${winner.name} got ${winner.cheese}.`, "blue");
+        this.yesterdaysWinner = winner.cheese;
+      }
+      min = this.yesterdaysWinner;
+    }
+    const aims = [1];
+    const reasons: string[] = [];
+    if (goal.place !== undefined) {
+      const rival = board?.today[goal.place - 1];
+      if (rival) aims.push(rival.cheese + 1);
+      reasons.push(
+        rival
+          ? `${ordinal(goal.place)} place is ${rival.name} with ${rival.cheese}`
+          : `no one is in ${ordinal(goal.place)} place yet`,
+      );
+    }
+    if (min !== undefined) {
+      aims.push(min);
+      reasons.push(`the minimum is ${min}`);
+    }
+    const aim = Math.max(...aims);
+    if (aim !== this.aim) this.log(`${reasons.join(" and ")}, so aiming for ${aim}+`, "blue");
+    this.aim = aim;
+    return true;
+  }
+
   // *** Setting up
 
   private bestConfiguration(fixed: Partial<Configuration>): Configuration {
@@ -145,12 +216,14 @@ export class Engine {
         `${rewards ? " (rewards pending)" : ""}`,
       "blue",
     );
-    const bar = this.lockTarget(gamesAfter);
-    if (bar > -Infinity) {
-      this.log(
-        `${gamesAfter} more game${gamesAfter === 1 ? "" : "s"} after this, so locking in at ${fmt(bar)}+`,
-        "blue",
-      );
+    if (!this.options.goal) {
+      const bar = this.lockTarget(gamesAfter);
+      if (bar > -Infinity) {
+        this.log(
+          `${gamesAfter} more game${gamesAfter === 1 ? "" : "s"} after this, so locking in at ${fmt(bar)}+`,
+          "blue",
+        );
+      }
     }
     let config = lobby.config;
     for (const upgrade of UPGRADES) {
@@ -240,21 +313,53 @@ export class Engine {
     const { cheese } = this.state(observation);
     this.log(`Game over: ${cheese} cheese.`, "blue");
     const remaining = Math.min(this.client.playsLeft(), this.options.games - this.gamesPlayed);
-    const canLockIn = observation.buttons.some((b) => b.name === LOCK_IN);
+    const canLockIn = this.options.lockIn && observation.buttons.some((b) => b.name === LOCK_IN);
 
     // Lock in if we hit what we were going for, or if this is the last game.
-    // Once locked in there's nothing more to play for today.
-    const target = this.lockTarget(remaining);
-    if (this.options.lockIn && canLockIn && cheese >= target) {
-      this.log(
-        `Locking in ${cheese}${target > -Infinity ? ` (aimed for ${fmt(target)})` : ""}.`,
-        "green",
-      );
-      this.client.choose(1316, 1);
-      return null;
+    // Once locked in there's nothing more to play for today. A game picked up
+    // partway through has no aim, so it can't meet a goal.
+    const target = this.options.goal ? (this.aim ?? Infinity) : this.lockTarget(remaining);
+    if (cheese >= target) {
+      if (canLockIn) {
+        this.log(
+          `Locking in ${cheese}${target > -Infinity ? ` (aimed for ${fmt(target)})` : ""}.`,
+          "green",
+        );
+        this.client.choose(1316, 1);
+        return null;
+      }
+      if (this.options.goal) {
+        this.log(`Reached ${fmt(target)}; stopping without locking in.`, "green");
+        this.client.choose(1316, 3);
+        return null;
+      }
     }
     if (remaining > 0) return this.client.choose(1316, 2);
     this.client.choose(1316, 3);
-    return null;
+    return this.restock();
+  }
+
+  // KoLmafia's count covers reruns; ours holds if its tracking ever breaks
+  private vouchersUsed(): number {
+    return Math.max(this.client.vouchersUsed(), this.vouchersUsedThisRun);
+  }
+
+  private restock(): Observation | null {
+    const goal = this.options.goal;
+    if (!goal || this.gamesPlayed >= this.options.games) return null;
+    if (this.vouchersUsed() >= goal.vouchers) {
+      this.log("Out of plays without meeting the goal, so nothing locked in.", "red");
+      return null;
+    }
+    const lobby = this.client.useVoucher(goal.maxPrice);
+    if (!lobby) return null;
+    this.vouchersUsedThisRun += 1;
+    if (lobby.choice !== 1313 || !this.canStart(lobby)) {
+      this.log("That loaner voucher didn't give any more plays; not buying more.", "red");
+      if (lobby.choice === 1313) this.client.choose(1313, 8);
+      return null;
+    }
+    this.log(`Used loaner voucher ${this.vouchersUsed()} of ${goal.vouchers} today.`, "blue");
+    return lobby;
   }
 }

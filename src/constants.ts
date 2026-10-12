@@ -92,6 +92,8 @@ export const STYLE_DELTAS: Record<Upgrade, Stats[]> = {
 
 export const PLAYS_PER_DAY = 5;
 
+export const HI_SCORES_SHOWN = 15;
+
 // KoLmafia's names for each style, as in _bastilleCurrentStyles
 export const STYLE_KEYS: Record<Upgrade, string[]> = {
   barb: ["BARBECUE", "BABAR", "BARBERSHOP"],

@@ -10,6 +10,10 @@ export type BattleResult = {
   won: boolean;
 };
 
+export type Score = { playerId: number; name: string; cheese: number };
+
+export type HiScores = { today: Score[]; yesterday: Score[] };
+
 export type Observation = {
   // Current choice adventure, or null if we're no longer in one
   choice: number | null;
@@ -34,5 +38,12 @@ export interface Client {
   rewardsPending(): boolean;
   // Games we can still start today, including from vouchers
   playsLeft(): number;
+  vouchersUsed(): number;
+  // Today's locked-in score, or 0
+  lockedInScore(): number;
+  // Buy a voucher if we need to and use it to enter the game; null if we can't
+  useVoucher(maxPrice: number): Observation | null;
+  // From the lobby, the leaderboards; null if we can't read them
+  readBoard(): HiScores | null;
   log(message: string, color?: string): void;
 }

@@ -1,9 +1,10 @@
 import { myId, myName, myPrimestat, print } from "kolmafia";
 import { $stat, get, sinceKolmafiaRevision } from "libram";
 
-import { Configuration } from "./constants";
+import { Configuration, HI_SCORES_SHOWN } from "./constants";
 import { Engine, Options } from "./engine";
-import { GameClient, Score } from "./game";
+import { GameClient } from "./game";
+import { Score } from "./observation";
 
 const WORDS: Record<string, Partial<Configuration>> = {
   barbecue: { barb: 1 },
@@ -37,6 +38,8 @@ function mainstat(): "muscle" | "myst" | "moxie" {
 
 const isMe = (score: Score) => score.playerId === Number(myId());
 
+const isWholeNumber = (n: number) => Number.isInteger(n) && n >= 0;
+
 function printScores(scores: Score[]): number {
   const rank = scores.findIndex(isMe);
   scores.forEach((score, i) => {
@@ -69,6 +72,7 @@ function showYesterday(client: GameClient): void {
 
 function help(): void {
   print("pompeii [rewards...] [games=N] [samples=N] [nopotions] [nolock]");
+  print("pompeii [place=N] [min=N] [vouchers=N] [maxprice=N] [...]");
   print("pompeii scores  (just show today's leaderboard)");
   print("pompeii yesterday  (just show yesterday's final standings)");
   print("Plays Bastille Battalion to maximise cheese.");
@@ -82,6 +86,13 @@ function help(): void {
     "nopotions  don't top up sharkfin gumbo/boiling broth/interrogative elixir to 3 turns each",
   );
   print("nolock     never lock in a score for the leaderboard");
+  print("");
+  print("Or set a goal, and lock in the first score that meets it however many games it takes");
+  print("(with nolock, just stop there):");
+  print(`place=N    beat whoever is in place N (1-${HI_SCORES_SHOWN}) on today's board`);
+  print("min=N      score at least N, or min=yesterday for yesterday's winning score");
+  print("vouchers=N buy and use up to N loaner vouchers for more plays (default 0)");
+  print("maxprice=N most to pay for a voucher (default autoBuyPriceLimit)");
 }
 
 export function main(args = ""): void {
@@ -94,17 +105,25 @@ export function main(args = ""): void {
 
   const options: Options = {
     rewards: {},
-    games: 5,
+    games: Infinity,
     samples: 16,
     // Per-character opt-out, e.g. for characters that shouldn't appear on the leaderboard
     lockIn: !get("pompeiiNoLock", false),
   };
   let potions = true;
+  let place: number | undefined;
+  let min: number | "yesterday" | undefined;
+  let vouchers = 0;
+  let maxPrice = get("autoBuyPriceLimit");
 
   for (const word of words) {
     const [key, value] = word.split("=");
     if (key === "games") options.games = Number(value);
     else if (key === "samples") options.samples = Number(value);
+    else if (key === "place") place = Number(value);
+    else if (key === "min") min = value === "yesterday" ? value : Number(value);
+    else if (key === "vouchers") vouchers = Number(value);
+    else if (key === "maxprice") maxPrice = Number(value);
     else if (word === "nopotions") potions = false;
     else if (word === "nolock") options.lockIn = false;
     else if (word === "mainstat") Object.assign(options.rewards, WORDS[mainstat()]);
@@ -114,6 +133,20 @@ export function main(args = ""): void {
       return help();
     }
   }
+
+  if (place !== undefined && !(isWholeNumber(place) && place >= 1 && place <= HI_SCORES_SHOWN)) {
+    return print(`place should be from 1 to ${HI_SCORES_SHOWN}.`, "red");
+  }
+  if (typeof min === "number" && !(min > 0)) {
+    return print("min should be a score or yesterday.", "red");
+  }
+  if (!isWholeNumber(vouchers)) return print("vouchers should be a whole number.", "red");
+  if (!isWholeNumber(maxPrice)) return print("maxprice should be a whole number of meat.", "red");
+  if (place === undefined && min === undefined && vouchers > 0) {
+    return print("Vouchers are only used when aiming for a place or min.", "red");
+  }
+
+  if (place !== undefined || min !== undefined) options.goal = { place, min, vouchers, maxPrice };
 
   const client = new GameClient();
   if (potions) client.drinkPotions();

@@ -24,7 +24,7 @@ import {
   UPGRADES,
   WELL_COST,
 } from "../src/constants";
-import { BattleResult, Button, Client, Observation } from "../src/observation";
+import { BattleResult, Button, Client, HiScores, Observation } from "../src/observation";
 import { fullPools, mulberry32, Rng, sample } from "../src/strategy";
 
 // An offline stand-in for the game so the engine can be exercised end to end.
@@ -36,6 +36,10 @@ export type SimulatorSettings = {
   castleWeights: number[];
   playsPerDay: number;
   boosts: [number, number, number];
+  // One, in the real game
+  voucherPlays: number;
+  voucherPrice: number;
+  hiScores: HiScores;
 };
 
 export const DEFAULT_SETTINGS: SimulatorSettings = {
@@ -44,6 +48,9 @@ export const DEFAULT_SETTINGS: SimulatorSettings = {
   castleWeights: CASTLES.map(() => 1),
   playsPerDay: PLAYS_PER_DAY,
   boosts: [0, 0, 0],
+  voucherPlays: 1,
+  voucherPrice: 100,
+  hiScores: { today: [], yesterday: [] },
 };
 
 type Phase = "lobby" | "planning" | Menu | "siege" | "results";
@@ -80,6 +87,7 @@ export class Simulator implements Client {
   #locked: number | null = null;
   #lastBattle: BattleResult | null = null;
   #rewardsClaimed = false;
+  #vouchers = 0;
   readonly #scores: number[] = [];
   readonly messages: string[] = [];
 
@@ -122,6 +130,23 @@ export class Simulator implements Client {
     return this.#plays;
   }
 
+  lockedInScore(): number {
+    return this.#locked ?? 0;
+  }
+
+  readBoard(): HiScores | null {
+    if (this.#phase !== "lobby") throw new Error(`Read the board while in ${this.#phase}`);
+    return this.#settings.hiScores;
+  }
+
+  useVoucher(maxPrice: number): Observation | null {
+    if (this.#settings.voucherPrice > maxPrice) return null;
+    this.#vouchers += 1;
+    this.#plays += this.#settings.voucherPlays;
+    this.#enterLobby();
+    return this.current();
+  }
+
   rewardsPending(): boolean {
     return !this.#rewardsClaimed;
   }
@@ -132,8 +157,8 @@ export class Simulator implements Client {
     return [...this.#scores];
   }
 
-  get lockedScore(): number | null {
-    return this.#locked;
+  vouchersUsed(): number {
+    return this.#vouchers;
   }
 
   get inGame(): boolean {

@@ -68,7 +68,7 @@ function engineDay(settings: Partial<SimulatorSettings>): number {
     samples: SAMPLES,
     lockIn: true,
   }).run();
-  return sim.lockedScore ?? 0;
+  return sim.lockedInScore();
 }
 
 const summary = (scores: number[]) => {
