@@ -51,6 +51,27 @@ describe("main", () => {
     expect(engines[0].goal).toMatchObject({ vouchers: 3, maxPrice: 20000 });
   });
 
+  it("passes an early minimum on as a goal", () => {
+    main("place=1 early=yesterday vouchers=2");
+    expect(engines[0].goal).toMatchObject({ place: 1, early: "yesterday", vouchers: 2 });
+  });
+
+  it.each(["early=soon", "early=0", "min=-3"])("won't play with %s", (arg) => {
+    main(`place=1 ${arg}`);
+    expect(engines).toHaveLength(0);
+  });
+
+  it("passes a fallback on with a goal", () => {
+    main("place=1 min=yesterday fallback");
+    expect(engines[0].goal).toMatchObject({ fallback: true });
+  });
+
+  it("won't take a fallback without a goal", () => {
+    main("fallback");
+    expect(engines).toHaveLength(0);
+    expect(print).toHaveBeenCalledWith(expect.stringContaining("fallback"), "red");
+  });
+
   // It might be partway through a game, when the board can't be read
   it("leaves min=yesterday for the engine to read from the lobby", () => {
     main("place=1 min=yesterday");
