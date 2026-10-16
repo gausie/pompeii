@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { MENU_CHOICE, WELL_COST } from "../src/constants";
+import { HI_SCORES_SHOWN, MENU_CHOICE, WELL_COST } from "../src/constants";
 import { Engine, Goal, Options } from "../src/engine";
 import { HiScores, Observation } from "../src/observation";
 
@@ -107,11 +107,13 @@ describe("engine against the simulator", () => {
       expect(scores[scores.length - 1]).toBeGreaterThanOrEqual(aim);
       expect(scores.slice(0, -1).every((s) => s < aim)).toBe(true);
     };
-    const lockedFirstReaching = (simulator: Simulator, aim: number) => {
-      stoppedAt(simulator, aim);
+    const lockedLast = (simulator: Simulator) =>
       expect(simulator.lockedInScore()).toBe(
         simulator.finalScores[simulator.finalScores.length - 1],
       );
+    const lockedFirstReaching = (simulator: Simulator, aim: number) => {
+      stoppedAt(simulator, aim);
+      lockedLast(simulator);
     };
 
     it("locks in the first score that reaches the minimum", () => {
@@ -134,6 +136,23 @@ describe("engine against the simulator", () => {
       expect(simulator.inGame).toBe(false);
     });
 
+    it("falls back to locking in the last game if the goal is never reached", () => {
+      const { simulator } = play({}, goal({ min: 100000, fallback: true }));
+      expect(simulator.finalScores).toHaveLength(5);
+      lockedLast(simulator);
+    });
+
+    it("falls back only once the vouchers are used up", () => {
+      const { simulator } = play({}, goal({ min: 100000, vouchers: 2, fallback: true }));
+      expect(simulator.finalScores).toHaveLength(7);
+      lockedLast(simulator);
+    });
+
+    it("still stops at the goal with a fallback", () => {
+      const { simulator } = play({}, goal({ min: 800, fallback: true }));
+      lockedFirstReaching(simulator, 800);
+    });
+
     it("beats the place it's aiming for", () => {
       const { simulator } = play({ hiScores: board([1100, 900, 700]) }, goal({ place: 1 }));
       lockedFirstReaching(simulator, 1101);
@@ -142,6 +161,25 @@ describe("engine against the simulator", () => {
     it("aims for the minimum when it's above the place", () => {
       const { simulator } = play({ hiScores: board([600]) }, goal({ place: 1, min: 1000 }));
       lockedFirstReaching(simulator, 1000);
+    });
+
+    it("keeps to the early minimum while few scores are in", () => {
+      const { simulator } = play({ hiScores: board([600]) }, goal({ place: 1, early: 100000 }));
+      expect(simulator.finalScores).toHaveLength(5);
+      expect(simulator.lockedInScore()).toBe(0);
+    });
+
+    it("drops the early minimum once 15 scores are in", () => {
+      const busy = board(Array.from({ length: HI_SCORES_SHOWN }, (_, i) => 700 - i));
+      const { simulator } = play({ hiScores: busy }, goal({ place: 1, early: 100000 }));
+      lockedFirstReaching(simulator, 701);
+    });
+
+    it("can keep to yesterday's winning score early on", () => {
+      const hiScores = board([600], [100000]);
+      const { simulator } = play({ hiScores }, goal({ place: 1, early: "yesterday" }));
+      expect(simulator.finalScores).toHaveLength(5);
+      expect(simulator.lockedInScore()).toBe(0);
     });
 
     it("takes any score when there's no one in that place yet", () => {
