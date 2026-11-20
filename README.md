@@ -8,7 +8,7 @@ cheese, take the biggest haul).
 
 ```
 pompeii [rewards...] [games=N] [samples=N] [nopotions] [nolock]
-pompeii [place=N] [min=N|yesterday] [vouchers=N] [maxprice=N] [...]
+pompeii [place=N] [min=N|yesterday] [early=N|yesterday] [fallback] [vouchers=N] [maxprice=N]
 pompeii scores
 pompeii yesterday
 ```
@@ -21,16 +21,18 @@ today's leaderboard and `pompeii yesterday` shows yesterday's final standings.
 
 Or give it a goal and it locks in the first score that meets it. `place=N` beats whoever is in
 place N on today's board, read again before every game since it moves as people lock in. `min=N`
-won't take less than N, and `min=yesterday` won't take less than yesterday's winning score, which
-is useful early in the day when the board is still low. With both, it aims for the higher.
+won't take less than N, and `min=yesterday` won't take less than yesterday's winning score.
+`early=` is the same but only while today's board has fewer than 15 scores, for when today's
+scores are still too low to go on. It aims for the highest of whichever are given.
 
 Once the day's plays are spent it can buy and use loaner vouchers for one more game each, but only
 as many as `vouchers=N` allows (none by default), each for no more than `maxprice=N` (default: your
-`autoBuyPriceLimit`). If the goal is never met, nothing is locked in. With `nolock` it just stops
-once it meets the goal.
+`autoBuyPriceLimit`). If the goal is never met, nothing is locked in, unless `fallback` is given,
+in which case it locks in the last game it plays. With `nolock` it just stops once it meets the
+goal.
 
 ```
-pompeii place=1 min=yesterday vouchers=100
+pompeii place=1 early=yesterday fallback
 ```
 
 Set `pompeiiNoLock=true` on a character to stop it ever locking in a score there.

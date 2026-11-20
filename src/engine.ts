@@ -2,6 +2,7 @@ import { lockInBar } from "./bars";
 import {
   BUTTONS,
   Configuration,
+  HI_SCORES_SHOWN,
   LOCK_IN,
   Menu,
   MENU_CHOICE,
@@ -37,12 +38,18 @@ export type Options = {
   goal?: Goal;
 };
 
+export type Minimum = number | "yesterday";
+
 export type Goal = {
   // Beat whoever is in this place on today's board
   place?: number;
-  min?: number | "yesterday";
+  min?: Minimum;
+  // Like min, but only while today's board has fewer than HI_SCORES_SHOWN scores
+  early?: Minimum;
   vouchers: number;
   maxPrice: number;
+  // Lock in the last game anyway if none meets the goal
+  fallback?: boolean;
 };
 
 const ordinal = (n: number) => `${n}${n === 1 ? "st" : n === 2 ? "nd" : n === 3 ? "rd" : "th"}`;
@@ -56,7 +63,7 @@ export class Engine {
   private vouchersUsedThisRun = 0;
   private aim: number | null = null;
   // Read once, from the lobby, since we might start partway through a game
-  private yesterdaysWinner: number | null = null;
+  private yesterdaysWinner?: number;
   // The best configuration only changes once the rewards are collected
   private configurations = new Map<string, Configuration>();
 
@@ -148,26 +155,26 @@ export class Engine {
 
   // Before every game, since the board moves as people lock in
   private updateAim(goal: Goal): boolean {
-    const needsBoard =
-      goal.place !== undefined || (goal.min === "yesterday" && this.yesterdaysWinner === null);
+    const needsYesterday =
+      (goal.min === "yesterday" || goal.early === "yesterday") &&
+      this.yesterdaysWinner === undefined;
+    const needsBoard = goal.place !== undefined || goal.early !== undefined || needsYesterday;
     const board = needsBoard ? this.client.readBoard() : null;
     if (needsBoard && !board) {
       this.log("Couldn't read the hi scores.", "red");
       return false;
     }
-    let min = goal.min;
-    if (min === "yesterday") {
-      if (this.yesterdaysWinner === null) {
-        const winner = board?.yesterday[0];
-        if (!winner) {
-          this.log("No final standings for yesterday to aim for.", "red");
-          return false;
-        }
-        this.log(`Yesterday's winner ${winner.name} got ${winner.cheese}.`, "blue");
-        this.yesterdaysWinner = winner.cheese;
+    if (needsYesterday) {
+      const winner = board?.yesterday[0];
+      if (!winner) {
+        this.log("No final standings for yesterday to aim for.", "red");
+        return false;
       }
-      min = this.yesterdaysWinner;
+      this.log(`Yesterday's winner ${winner.name} got ${winner.cheese}.`, "blue");
+      this.yesterdaysWinner = winner.cheese;
     }
+    const score = (value?: Minimum) => (value === "yesterday" ? this.yesterdaysWinner : value);
+
     const aims = [1];
     const reasons: string[] = [];
     if (goal.place !== undefined) {
@@ -179,9 +186,17 @@ export class Engine {
           : `no one is in ${ordinal(goal.place)} place yet`,
       );
     }
+    const min = score(goal.min);
     if (min !== undefined) {
       aims.push(min);
       reasons.push(`the minimum is ${min}`);
+    }
+    const early = score(goal.early);
+    if (early !== undefined && (board?.today.length ?? 0) < HI_SCORES_SHOWN) {
+      aims.push(early);
+      reasons.push(
+        `the early minimum is ${early} while fewer than ${HI_SCORES_SHOWN} scores are in`,
+      );
     }
     const aim = Math.max(...aims);
     if (aim !== this.aim) this.log(`${reasons.join(" and ")}, so aiming for ${aim}+`, "blue");
@@ -318,17 +333,22 @@ export class Engine {
     // Lock in if we hit what we were going for, or if this is the last game.
     // Once locked in there's nothing more to play for today. A game picked up
     // partway through has no aim, so it can't meet a goal.
-    const target = this.options.goal ? (this.aim ?? Infinity) : this.lockTarget(remaining);
-    if (cheese >= target) {
+    const goal = this.options.goal;
+    const target = goal ? (this.aim ?? Infinity) : this.lockTarget(remaining);
+    const met = cheese >= target;
+    const lastResort = !!goal?.fallback && remaining <= 0 && !this.morePlays(goal);
+    if (met || lastResort) {
       if (canLockIn) {
         this.log(
-          `Locking in ${cheese}${target > -Infinity ? ` (aimed for ${fmt(target)})` : ""}.`,
+          met
+            ? `Locking in ${cheese}${target > -Infinity ? ` (aimed for ${fmt(target)})` : ""}.`
+            : `Locking in ${cheese}, the last game, as nothing met the goal.`,
           "green",
         );
         this.client.choose(1316, 1);
         return null;
       }
-      if (this.options.goal) {
+      if (goal && met) {
         this.log(`Reached ${fmt(target)}; stopping without locking in.`, "green");
         this.client.choose(1316, 3);
         return null;
@@ -344,10 +364,15 @@ export class Engine {
     return Math.max(this.client.vouchersUsed(), this.vouchersUsedThisRun);
   }
 
+  // Whether a voucher could still get us another game
+  private morePlays(goal: Goal): boolean {
+    return this.gamesPlayed < this.options.games && this.vouchersUsed() < goal.vouchers;
+  }
+
   private restock(): Observation | null {
     const goal = this.options.goal;
-    if (!goal || this.gamesPlayed >= this.options.games) return null;
-    if (this.vouchersUsed() >= goal.vouchers) {
+    if (!goal) return null;
+    if (!this.morePlays(goal)) {
       this.log("Out of plays without meeting the goal, so nothing locked in.", "red");
       return null;
     }

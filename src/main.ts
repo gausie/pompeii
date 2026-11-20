@@ -2,7 +2,7 @@ import { myId, myName, myPrimestat, print } from "kolmafia";
 import { $stat, get, sinceKolmafiaRevision } from "libram";
 
 import { Configuration, HI_SCORES_SHOWN } from "./constants";
-import { Engine, Options } from "./engine";
+import { Engine, Minimum, Options } from "./engine";
 import { GameClient } from "./game";
 import { Score } from "./observation";
 
@@ -40,6 +40,10 @@ const isMe = (score: Score) => score.playerId === Number(myId());
 
 const isWholeNumber = (n: number) => Number.isInteger(n) && n >= 0;
 
+const parseMinimum = (value: string): Minimum => (value === "yesterday" ? value : Number(value));
+
+const isMinimum = (minimum?: Minimum) => typeof minimum !== "number" || minimum > 0;
+
 function printScores(scores: Score[]): number {
   const rank = scores.findIndex(isMe);
   scores.forEach((score, i) => {
@@ -72,7 +76,7 @@ function showYesterday(client: GameClient): void {
 
 function help(): void {
   print("pompeii [rewards...] [games=N] [samples=N] [nopotions] [nolock]");
-  print("pompeii [place=N] [min=N] [vouchers=N] [maxprice=N] [...]");
+  print("pompeii [place=N] [min=N] [early=N] [fallback] [vouchers=N] [maxprice=N] [...]");
   print("pompeii scores  (just show today's leaderboard)");
   print("pompeii yesterday  (just show yesterday's final standings)");
   print("Plays Bastille Battalion to maximise cheese.");
@@ -91,6 +95,8 @@ function help(): void {
   print("(with nolock, just stop there):");
   print(`place=N    beat whoever is in place N (1-${HI_SCORES_SHOWN}) on today's board`);
   print("min=N      score at least N, or min=yesterday for yesterday's winning score");
+  print(`early=N    like min, but only while today's board has under ${HI_SCORES_SHOWN} scores`);
+  print("fallback   if no game meets the goal, lock in the last one anyway");
   print("vouchers=N buy and use up to N loaner vouchers for more plays (default 0)");
   print("maxprice=N most to pay for a voucher (default autoBuyPriceLimit)");
 }
@@ -112,7 +118,9 @@ export function main(args = ""): void {
   };
   let potions = true;
   let place: number | undefined;
-  let min: number | "yesterday" | undefined;
+  let min: Minimum | undefined;
+  let early: Minimum | undefined;
+  let fallback = false;
   let vouchers = 0;
   let maxPrice = get("autoBuyPriceLimit");
 
@@ -121,11 +129,13 @@ export function main(args = ""): void {
     if (key === "games") options.games = Number(value);
     else if (key === "samples") options.samples = Number(value);
     else if (key === "place") place = Number(value);
-    else if (key === "min") min = value === "yesterday" ? value : Number(value);
+    else if (key === "min") min = parseMinimum(value);
+    else if (key === "early") early = parseMinimum(value);
     else if (key === "vouchers") vouchers = Number(value);
     else if (key === "maxprice") maxPrice = Number(value);
     else if (word === "nopotions") potions = false;
     else if (word === "nolock") options.lockIn = false;
+    else if (word === "fallback") fallback = true;
     else if (word === "mainstat") Object.assign(options.rewards, WORDS[mainstat()]);
     else if (WORDS[word]) Object.assign(options.rewards, WORDS[word]);
     else {
@@ -137,16 +147,16 @@ export function main(args = ""): void {
   if (place !== undefined && !(isWholeNumber(place) && place >= 1 && place <= HI_SCORES_SHOWN)) {
     return print(`place should be from 1 to ${HI_SCORES_SHOWN}.`, "red");
   }
-  if (typeof min === "number" && !(min > 0)) {
-    return print("min should be a score or yesterday.", "red");
-  }
+  if (!isMinimum(min)) return print("min should be a score or yesterday.", "red");
+  if (!isMinimum(early)) return print("early should be a score or yesterday.", "red");
   if (!isWholeNumber(vouchers)) return print("vouchers should be a whole number.", "red");
   if (!isWholeNumber(maxPrice)) return print("maxprice should be a whole number of meat.", "red");
-  if (place === undefined && min === undefined && vouchers > 0) {
-    return print("Vouchers are only used when aiming for a place or min.", "red");
-  }
 
-  if (place !== undefined || min !== undefined) options.goal = { place, min, vouchers, maxPrice };
+  if (place !== undefined || min !== undefined || early !== undefined) {
+    options.goal = { place, min, early, fallback, vouchers, maxPrice };
+  } else if (vouchers > 0 || fallback) {
+    return print("vouchers and fallback only work with a place, min or early.", "red");
+  }
 
   const client = new GameClient();
   if (potions) client.drinkPotions();
