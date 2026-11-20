@@ -2272,8 +2272,6 @@ var Engine = /*#__PURE__*/function () {
     _defineProperty(this, "gamesPlayed", 0);
     _defineProperty(this, "vouchersUsedThisRun", 0);
     _defineProperty(this, "aim", null);
-    // Read once, from the lobby, since we might start partway through a game
-    _defineProperty(this, "yesterdaysWinner", null);
     // The best configuration only changes once the rewards are collected
     _defineProperty(this, "configurations", new Map());
     this.client = client;
@@ -2368,25 +2366,23 @@ var Engine = /*#__PURE__*/function () {
   }, {
     key: "updateAim",
     value: function updateAim(goal) {
-      var needsBoard = goal.place !== undefined || goal.min === "yesterday" && this.yesterdaysWinner === null;
+      var needsYesterday = (goal.min === "yesterday" || goal.early === "yesterday") && this.yesterdaysWinner === undefined;
+      var needsBoard = goal.place !== undefined || goal.early !== undefined || needsYesterday;
       var board = needsBoard ? this.client.readBoard() : null;
       if (needsBoard && !board) {
         this.log("Couldn't read the hi scores.", "red");
         return false;
       }
-      var min = goal.min;
-      if (min === "yesterday") {
-        if (this.yesterdaysWinner === null) {
-          var winner = board === null || board === void 0 ? void 0 : board.yesterday[0];
-          if (!winner) {
-            this.log("No final standings for yesterday to aim for.", "red");
-            return false;
-          }
-          this.log("Yesterday's winner ".concat(winner.name, " got ").concat(winner.cheese, "."), "blue");
-          this.yesterdaysWinner = winner.cheese;
+      if (needsYesterday) {
+        var winner = board === null || board === void 0 ? void 0 : board.yesterday[0];
+        if (!winner) {
+          this.log("No final standings for yesterday to aim for.", "red");
+          return false;
         }
-        min = this.yesterdaysWinner;
+        this.log("Yesterday's winner ".concat(winner.name, " got ").concat(winner.cheese, "."), "blue");
+        this.yesterdaysWinner = winner.cheese;
       }
+      var score = value => value === "yesterday" ? this.yesterdaysWinner : value;
       var aims = [1];
       var reasons = [];
       if (goal.place !== undefined) {
@@ -2394,9 +2390,15 @@ var Engine = /*#__PURE__*/function () {
         if (rival) aims.push(rival.cheese + 1);
         reasons.push(rival ? "".concat(ordinal(goal.place), " place is ").concat(rival.name, " with ").concat(rival.cheese) : "no one is in ".concat(ordinal(goal.place), " place yet"));
       }
+      var min = score(goal.min);
       if (min !== undefined) {
         aims.push(min);
         reasons.push("the minimum is ".concat(min));
+      }
+      var early = score(goal.early);
+      if (early !== undefined && ((board === null || board === void 0 ? void 0 : board.today.length) ?? 0) < HI_SCORES_SHOWN) {
+        aims.push(early);
+        reasons.push("the early minimum is ".concat(early, " while fewer than ").concat(HI_SCORES_SHOWN, " scores are in"));
       }
       var aim = Math.max.apply(Math, aims);
       if (aim !== this.aim) this.log("".concat(reasons.join(" and "), ", so aiming for ").concat(aim, "+"), "blue");
@@ -2519,14 +2521,17 @@ var Engine = /*#__PURE__*/function () {
       // Lock in if we hit what we were going for, or if this is the last game.
       // Once locked in there's nothing more to play for today. A game picked up
       // partway through has no aim, so it can't meet a goal.
-      var target = this.options.goal ? this.aim ?? Infinity : this.lockTarget(remaining);
-      if (cheese >= target) {
+      var goal = this.options.goal;
+      var target = goal ? this.aim ?? Infinity : this.lockTarget(remaining);
+      var met = cheese >= target;
+      var lastResort = !!(goal !== null && goal !== void 0 && goal.fallback) && remaining <= 0 && !this.morePlays(goal);
+      if (met || lastResort) {
         if (canLockIn) {
-          this.log("Locking in ".concat(cheese).concat(target > -Infinity ? " (aimed for ".concat(fmt(target), ")") : "", "."), "green");
+          this.log(met ? "Locking in ".concat(cheese).concat(target > -Infinity ? " (aimed for ".concat(fmt(target), ")") : "", ".") : "Locking in ".concat(cheese, ", the last game, as nothing met the goal."), "green");
           this.client.choose(1316, 1);
           return null;
         }
-        if (this.options.goal) {
+        if (goal && met) {
           this.log("Reached ".concat(fmt(target), "; stopping without locking in."), "green");
           this.client.choose(1316, 3);
           return null;
@@ -2543,12 +2548,19 @@ var Engine = /*#__PURE__*/function () {
     value: function vouchersUsed() {
       return Math.max(this.client.vouchersUsed(), this.vouchersUsedThisRun);
     }
+
+    // Whether a voucher could still get us another game
+  }, {
+    key: "morePlays",
+    value: function morePlays(goal) {
+      return this.gamesPlayed < this.options.games && this.vouchersUsed() < goal.vouchers;
+    }
   }, {
     key: "restock",
     value: function restock() {
       var goal = this.options.goal;
-      if (!goal || this.gamesPlayed >= this.options.games) return null;
-      if (this.vouchersUsed() >= goal.vouchers) {
+      if (!goal) return null;
+      if (!this.morePlays(goal)) {
         this.log("Out of plays without meeting the goal, so nothing locked in.", "red");
         return null;
       }
@@ -2928,6 +2940,8 @@ function mainstat() {
 }
 var isMe = score => score.playerId === Number(kolmafia.myId());
 var isWholeNumber = n => Number.isInteger(n) && n >= 0;
+var parseMinimum = value => value === "yesterday" ? value : Number(value);
+var isMinimum = minimum => typeof minimum !== "number" || minimum > 0;
 function printScores(scores) {
   var rank = scores.findIndex(isMe);
   scores.forEach((score, i) => {
@@ -2959,7 +2973,7 @@ function showYesterday(client) {
 }
 function help() {
   kolmafia.print("pompeii [rewards...] [games=N] [samples=N] [nopotions] [nolock]");
-  kolmafia.print("pompeii [place=N] [min=N] [vouchers=N] [maxprice=N] [...]");
+  kolmafia.print("pompeii [place=N] [min=N] [early=N] [fallback] [vouchers=N] [maxprice=N] [...]");
   kolmafia.print("pompeii scores  (just show today's leaderboard)");
   kolmafia.print("pompeii yesterday  (just show yesterday's final standings)");
   kolmafia.print("Plays Bastille Battalion to maximise cheese.");
@@ -2976,6 +2990,8 @@ function help() {
   kolmafia.print("(with nolock, just stop there):");
   kolmafia.print("place=N    beat whoever is in place N (1-".concat(HI_SCORES_SHOWN, ") on today's board"));
   kolmafia.print("min=N      score at least N, or min=yesterday for yesterday's winning score");
+  kolmafia.print("early=N    like min, but only while today's board has under ".concat(HI_SCORES_SHOWN, " scores"));
+  kolmafia.print("fallback   if no game meets the goal, lock in the last one anyway");
   kolmafia.print("vouchers=N buy and use up to N loaner vouchers for more plays (default 0)");
   kolmafia.print("maxprice=N most to pay for a voucher (default autoBuyPriceLimit)");
 }
@@ -2997,6 +3013,8 @@ function main() {
   var potions = true;
   var place;
   var min;
+  var early;
+  var fallback = false;
   var vouchers = 0;
   var maxPrice = get("autoBuyPriceLimit");
   var _iterator = _createForOfIteratorHelper(words),
@@ -3008,7 +3026,7 @@ function main() {
         _word$split2 = _slicedToArray(_word$split, 2),
         key = _word$split2[0],
         value = _word$split2[1];
-      if (key === "games") options.games = Number(value);else if (key === "samples") options.samples = Number(value);else if (key === "place") place = Number(value);else if (key === "min") min = value === "yesterday" ? value : Number(value);else if (key === "vouchers") vouchers = Number(value);else if (key === "maxprice") maxPrice = Number(value);else if (word === "nopotions") potions = false;else if (word === "nolock") options.lockIn = false;else if (word === "mainstat") Object.assign(options.rewards, WORDS[mainstat()]);else if (WORDS[word]) Object.assign(options.rewards, WORDS[word]);else {
+      if (key === "games") options.games = Number(value);else if (key === "samples") options.samples = Number(value);else if (key === "place") place = Number(value);else if (key === "min") min = parseMinimum(value);else if (key === "early") early = parseMinimum(value);else if (key === "vouchers") vouchers = Number(value);else if (key === "maxprice") maxPrice = Number(value);else if (word === "nopotions") potions = false;else if (word === "nolock") options.lockIn = false;else if (word === "fallback") fallback = true;else if (word === "mainstat") Object.assign(options.rewards, WORDS[mainstat()]);else if (WORDS[word]) Object.assign(options.rewards, WORDS[word]);else {
         kolmafia.print("Unknown argument \"".concat(word, "\""), "red");
         return help();
       }
@@ -3021,20 +3039,22 @@ function main() {
   if (place !== undefined && !(isWholeNumber(place) && place >= 1 && place <= HI_SCORES_SHOWN)) {
     return kolmafia.print("place should be from 1 to ".concat(HI_SCORES_SHOWN, "."), "red");
   }
-  if (typeof min === "number" && !(min > 0)) {
-    return kolmafia.print("min should be a score or yesterday.", "red");
-  }
+  if (!isMinimum(min)) return kolmafia.print("min should be a score or yesterday.", "red");
+  if (!isMinimum(early)) return kolmafia.print("early should be a score or yesterday.", "red");
   if (!isWholeNumber(vouchers)) return kolmafia.print("vouchers should be a whole number.", "red");
   if (!isWholeNumber(maxPrice)) return kolmafia.print("maxprice should be a whole number of meat.", "red");
-  if (place === undefined && min === undefined && vouchers > 0) {
-    return kolmafia.print("Vouchers are only used when aiming for a place or min.", "red");
+  if (place !== undefined || min !== undefined || early !== undefined) {
+    options.goal = {
+      place,
+      min,
+      early,
+      fallback,
+      vouchers,
+      maxPrice
+    };
+  } else if (vouchers > 0 || fallback) {
+    return kolmafia.print("vouchers and fallback only work with a place, min or early.", "red");
   }
-  if (place !== undefined || min !== undefined) options.goal = {
-    place,
-    min,
-    vouchers,
-    maxPrice
-  };
   var client = new GameClient();
   if (potions) client.drinkPotions();
   new Engine(client, options).run();
